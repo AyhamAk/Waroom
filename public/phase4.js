@@ -1,0 +1,495 @@
+/* ══════════════════════════════════════════════
+   WAR ROOM — PHASE 4: LIVE MODE
+   SSE, agent desks, comm feed, file tree, preview.
+   Depends on: data.js, state.js, utils.js, app.js
+   ══════════════════════════════════════════════ */
+
+/* ── Phase 4 DOM refs ── */
+const $liveTokens  = document.getElementById('live-tokens');
+const $sessionTimer= document.getElementById('session-timer');
+const $agentDesks  = document.getElementById('agent-desks');
+const $commFeed    = document.getElementById('comm-feed');
+const $fileTree    = document.getElementById('file-tree');
+const $msgCount    = document.getElementById('msg-count');
+const $ppBtn       = document.getElementById('play-pause-btn');
+const $crisisBtn   = document.getElementById('crisis-btn');
+const $exportBtn   = document.getElementById('export-all-btn');
+const $countdownOv = document.getElementById('countdown-overlay');
+const $countdownNo = document.getElementById('countdown-number');
+const $crisisBanner= document.getElementById('crisis-banner');
+const $fileModal   = document.getElementById('file-modal');
+const $modalBg     = document.getElementById('modal-backdrop');
+const $modalFile   = document.getElementById('modal-filename');
+const $modalCode   = document.getElementById('modal-code');
+const $modalDl     = document.getElementById('modal-download-btn');
+const $modalClose  = document.getElementById('modal-close-btn');
+
+/* ── Speed buttons ── */
+document.querySelectorAll('.speed-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const s = parseFloat(btn.dataset.s);
+    liveState.speed = s;
+    fetch('/api/speed', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ multiplier: s }) });
+  });
+});
+
+$ppBtn.addEventListener('click', () => {
+  if (liveState.paused) {
+    fetch('/api/resume', { method: 'POST' });
+    liveState.paused = false;
+    $ppBtn.textContent = '⏸ PAUSE';
+    $ppBtn.classList.remove('paused');
+  } else {
+    fetch('/api/pause', { method: 'POST' });
+    liveState.paused = true;
+    $ppBtn.textContent = '▶ RESUME';
+    $ppBtn.classList.add('paused');
+  }
+});
+
+$crisisBtn.addEventListener('click', () => {
+  fetch('/api/inject-crisis', { method: 'POST' });
+});
+
+const $customerBtn   = document.getElementById('customer-btn');
+const $customerModal = document.getElementById('customer-modal');
+const $customerClose = document.getElementById('customer-modal-close');
+const $customerBg    = document.getElementById('customer-modal-backdrop');
+const $customerInput = document.getElementById('customer-feedback-input');
+const $customerSend  = document.getElementById('customer-send-btn');
+
+$customerBtn.addEventListener('click', () => {
+  $customerModal.hidden = false;
+  $customerInput.focus();
+});
+
+function closeCustomerModal() { $customerModal.hidden = true; }
+$customerClose.addEventListener('click', closeCustomerModal);
+$customerBg.addEventListener('click', closeCustomerModal);
+
+$customerSend.addEventListener('click', () => {
+  const msg = $customerInput.value.trim();
+  if (!msg) return;
+  fetch('/api/customer-feedback', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: msg }),
+  });
+  $customerInput.value = '';
+  closeCustomerModal();
+});
+
+$exportBtn.addEventListener('click', exportZip);
+$modalBg.addEventListener('click', closeModal);
+$modalClose.addEventListener('click', closeModal);
+
+/* ── New Mission — stop server session then go home ── */
+function stopAndReset() {
+  // Kill iframe immediately so its internal reload timer stops
+  const $iframe = document.getElementById('preview-iframe');
+  if ($iframe) $iframe.src = 'about:blank';
+
+  // Stop session timer
+  if (liveState.timerInterval) { clearInterval(liveState.timerInterval); liveState.timerInterval = null; }
+
+  // Close SSE so no more agent-status events trigger screenshots
+  if (liveState.sse) { liveState.sse.close(); liveState.sse = null; }
+
+  fetch('/api/stop', { method: 'POST' }).finally(() => resetToPhase1());
+}
+document.getElementById('new-mission-btn').addEventListener('click', stopAndReset);
+document.getElementById('new-mission-live-btn').addEventListener('click', stopAndReset);
+
+/* ── Reconnect to an already-running session (after page refresh) ── */
+function reconnectLiveMode(status) {
+  state.brief = status.brief;
+  showPhase(4);
+  buildAgentDesks();
+  connectSSE();
+  const $iframe = document.getElementById('preview-iframe');
+  if ($iframe) $iframe.src = `/preview-now?t=${Date.now()}`;
+}
+
+/* ── Start live mode ── */
+async function startLiveMode() {
+  showPhase(4);
+  buildAgentDesks();
+  connectSSE();
+  await fetch('/api/start-live', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      brief: state.brief, agents: state.selectedAgents, category: state.selectedCategory,
+      provider: state.llmMode, apiKey: state.apiKey,
+    }),
+  });
+}
+
+function connectSSE() {
+  if (liveState.sse) liveState.sse.close();
+  const es = new EventSource('/api/stream');
+  liveState.sse = es;
+
+  es.addEventListener('state', e => {
+    const d = JSON.parse(e.data);
+    liveState.tokens = d.tokens;
+    liveState.startTime = d.startTime;
+    liveState.paused = d.paused;
+    $liveTokens.textContent = fmtNum(d.tokens);
+    if (d.files?.length) {
+      d.files.forEach(f => { liveState.files[f.path] = f; });
+      rebuildFileTree();
+    }
+    // Sync pause button label to actual server state
+    if (d.paused) {
+      $ppBtn.textContent = '▶ RESUME'; $ppBtn.classList.add('paused');
+    } else {
+      $ppBtn.textContent = '⏸ PAUSE'; $ppBtn.classList.remove('paused');
+    }
+    startSessionTimer();
+  });
+
+  es.addEventListener('countdown', e => {
+    const { count } = JSON.parse(e.data);
+    $countdownOv.hidden = false;
+    $countdownNo.textContent = count;
+    void $countdownNo.offsetWidth;
+    $countdownNo.style.animation = 'none';
+    void $countdownNo.offsetWidth;
+    $countdownNo.style.animation = '';
+  });
+
+  es.addEventListener('live-start', e => {
+    $countdownOv.hidden = true;
+    liveState.startTime = JSON.parse(e.data).startTime;
+    startSessionTimer();
+    const $iframe = document.getElementById('preview-iframe');
+    const $status = document.getElementById('preview-status');
+    const $link   = document.getElementById('preview-tab-btn');
+    if ($iframe) $iframe.src = `/preview-now?t=${Date.now()}`;
+    if ($status) { $status.textContent = 'LIVE'; $status.classList.add('live'); }
+    if ($link)   $link.href = '/preview-now';
+  });
+
+  es.addEventListener('preview-refresh', () => {
+    schedulePreviewReload();
+  });
+
+  es.addEventListener('agent-status', e => {
+    const { agentId, status } = JSON.parse(e.data);
+    updateDeskStatus(agentId, status);
+    if ((agentId === 'builder' || agentId === 'ceo') && status === 'thinking') {
+      capturePreviewScreenshot();
+    }
+  });
+
+  es.addEventListener('new-message', e => {
+    const msg = JSON.parse(e.data);
+    appendFeedMessage(msg);
+    if (msg.from && msg.from !== 'system') updateDeskBubble(msg.from, msg.message);
+  });
+
+  es.addEventListener('new-file', e => {
+    const f = JSON.parse(e.data);
+    liveState.files[f.path] = f;
+    rebuildFileTree();
+    flashDeskFileBadge(f.agentId, f.path);
+  });
+
+  es.addEventListener('token-update', e => {
+    const { total } = JSON.parse(e.data);
+    liveState.tokens = total;
+    $liveTokens.textContent = fmtNum(total);
+    updateTopbarBudget(TOTAL_BUDGET - total);
+  });
+
+  es.addEventListener('crisis', e => {
+    const { message } = JSON.parse(e.data);
+    showCrisisBanner(message);
+  });
+
+  es.addEventListener('customer-feedback', e => {
+    const { message } = JSON.parse(e.data);
+    showCustomerBanner(message);
+  });
+
+  es.onerror = () => {
+    setTimeout(connectSSE, 3000);
+  };
+}
+
+/* ── Agent desk cards ── */
+function buildAgentDesks() {
+  $agentDesks.innerHTML = '';
+  Object.entries(LIVE_AGENT_META).forEach(([id, a]) => {
+    const pid = PORTRAIT_ID_MAP[id] || id;
+    const card = document.createElement('div');
+    card.className = 'desk-card';
+    card.id = `desk-${id}`;
+    card.style.setProperty('--agent-color', a.color);
+    card.innerHTML = `
+      <div class="desk-portrait-wrap">
+        <div class="desk-portrait-img" id="desk-portrait-${id}">${PORTRAITS[pid] || `<svg viewBox="0 0 72 88"><text y="56" x="36" text-anchor="middle" font-size="32" fill="${a.color}">${a.abbr[0]}</text></svg>`}</div>
+        <div class="desk-status-ring" id="desk-ring-${id}"></div>
+      </div>
+      <div class="desk-name" style="color:${a.color}">${a.name}</div>
+      <div class="desk-role">${a.abbr}</div>
+      <div class="desk-state-row">
+        <span class="desk-badge" id="desk-badge-${id}">IDLE</span>
+        <span class="desk-typing" id="desk-typing-${id}"><span></span><span></span><span></span></span>
+      </div>
+      <div class="desk-bubble" id="desk-bubble-${id}">Standing by...</div>
+      <div class="desk-file-badge" id="desk-file-${id}"></div>`;
+
+    card.addEventListener('mousemove', e => {
+      const r = card.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width  - 0.5;
+      const y = (e.clientY - r.top)  / r.height - 0.5;
+      card.style.transform = `perspective(520px) rotateY(${x * 14}deg) rotateX(${-y * 10}deg) scale(1.04)`;
+    });
+    card.addEventListener('mouseleave', () => { card.style.transform = ''; });
+
+    $agentDesks.appendChild(card);
+  });
+}
+
+function updateDeskStatus(agentId, status) {
+  const card  = document.getElementById(`desk-${agentId}`);
+  const badge = document.getElementById(`desk-badge-${agentId}`);
+  if (!card) return;
+  const labels = { idle:'IDLE', thinking:'THINKING', working:'WORKING', talking:'TALKING' };
+  card.className = `desk-card status-${status}`;
+  card.style.setProperty('--agent-color', LIVE_AGENT_META[agentId]?.color || '#00e676');
+  if (badge) badge.textContent = labels[status] || status.toUpperCase();
+}
+
+function updateDeskBubble(agentId, message) {
+  const el = document.getElementById(`desk-bubble-${agentId}`);
+  if (el) el.textContent = message.replace(/`/g, '').slice(0, 120);
+}
+
+function flashDeskFileBadge(agentId, filePath) {
+  const el = document.getElementById(`desk-file-${agentId}`);
+  if (!el) return;
+  el.textContent = `📄 ${filePath.split('/').pop()}`;
+  el.classList.add('visible');
+  setTimeout(() => el.classList.remove('visible'), 6000);
+}
+
+/* ── Comm feed ── */
+function appendFeedMessage(msg) {
+  liveState.msgCount++;
+  $msgCount.textContent = `${liveState.msgCount} message${liveState.msgCount !== 1 ? 's' : ''}`;
+
+  const el = document.createElement('div');
+  const time = new Date(msg.timestamp).toTimeString().slice(0, 8);
+
+  if (msg.type === 'system') {
+    el.className = 'feed-msg type-system';
+    el.innerHTML = `<div class="feed-system-msg">${escHtml(msg.message)}</div>`;
+  } else if (msg.type === 'crisis') {
+    el.className = 'feed-msg type-crisis';
+    el.innerHTML = `<div class="feed-crisis-msg">${escHtml(msg.message)}</div>`;
+  } else {
+    const fromMeta = LIVE_AGENT_META[msg.from] || { name: msg.from, color: '#888', bg: 'rgba(128,128,128,0.1)', abbr: '?' };
+    const pid = PORTRAIT_ID_MAP[msg.from] || msg.from;
+    const toMeta = msg.to ? LIVE_AGENT_META[msg.to] : null;
+    const isFile = msg.type === 'file';
+
+    el.className = `feed-msg ${isFile ? 'type-file' : 'type-' + msg.type}`;
+    el.innerHTML = `
+      <div class="feed-avatar-sm" style="background:${fromMeta.bg};color:${fromMeta.color};border:1px solid ${fromMeta.color}">
+        <div style="width:100%;height:100%;border-radius:50%;overflow:hidden">${PORTRAITS[pid]||fromMeta.abbr}</div>
+      </div>
+      <div class="feed-body">
+        <div class="feed-meta">
+          <span class="feed-sender" style="color:${fromMeta.color}">${fromMeta.name}</span>
+          ${toMeta ? `<span class="feed-arrow">→</span><span class="feed-target" style="color:${toMeta.color}">${toMeta.name}</span>` : ''}
+          <span class="feed-time">${time}</span>
+        </div>
+        <div class="feed-text">${formatFeedText(msg.message)}</div>
+      </div>`;
+  }
+
+  $commFeed.appendChild(el);
+  while ($commFeed.children.length > 80) $commFeed.removeChild($commFeed.firstChild);
+  $commFeed.scrollTop = $commFeed.scrollHeight;
+}
+
+function formatFeedText(txt) {
+  return escHtml(txt).replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+/* ── File tree ── */
+function rebuildFileTree() {
+  const folders = {};
+  Object.values(liveState.files).forEach(f => {
+    const parts = f.path.split('/');
+    const folder = parts.length > 1 ? parts[0] : 'root';
+    const name   = parts[parts.length - 1];
+    if (!folders[folder]) folders[folder] = [];
+    folders[folder].push({ ...f, name });
+  });
+
+  $fileTree.innerHTML = '';
+
+  const icons = { js:'📄', ts:'📄', html:'🎨', css:'🎨', md:'📝', json:'📋', txt:'📄' };
+  const folderIcons = { src:'⚙️', design:'🎨', docs:'📝', tests:'🧪', sales:'💼', root:'📁' };
+
+  Object.entries(folders).sort().forEach(([folder, files]) => {
+    const fdiv = document.createElement('div');
+    fdiv.className = 'file-folder';
+    fdiv.innerHTML = `<div class="folder-name"><span class="folder-icon">${folderIcons[folder]||'📁'}</span>${folder}/</div>`;
+
+    files.sort((a, b) => b.ts - a.ts).forEach(f => {
+      const ext  = f.name.split('.').pop() || '';
+      const icon = icons[ext] || '📄';
+      const ago  = timeAgo(f.ts);
+      const item = document.createElement('div');
+      item.className = 'file-item';
+      item.innerHTML = `
+        <span class="file-icon">${icon}</span>
+        <div class="file-info">
+          <div class="file-name">${f.name}</div>
+          <div class="file-meta">${f.lines} lines · ${ago}</div>
+        </div>
+        <button class="file-dl-btn" title="Download">⬇</button>`;
+      item.addEventListener('click', e => {
+        if (e.target.classList.contains('file-dl-btn')) { downloadFile(f); return; }
+        previewFile(f);
+      });
+      fdiv.appendChild(item);
+    });
+
+    $fileTree.appendChild(fdiv);
+  });
+}
+
+/* ── File preview modal ── */
+async function previewFile(f) {
+  $modalFile.textContent = f.path;
+  $modalCode.textContent = 'Loading...';
+  $modalCode.removeAttribute('data-highlighted');
+  $fileModal.hidden = false;
+  document.body.style.overflow = 'hidden';
+
+  if (!f.content) {
+    try {
+      const res = await fetch(`/api/file?path=${encodeURIComponent(f.path)}`);
+      const data = await res.json();
+      f.content = data.content || '';
+      liveState.files[f.path] = { ...liveState.files[f.path], content: f.content };
+    } catch (e) {
+      f.content = '// Could not load file content';
+    }
+  }
+
+  $modalCode.textContent = f.content;
+  $modalCode.removeAttribute('data-highlighted');
+  if (window.hljs) {
+    $modalCode.className = '';
+    hljs.highlightElement($modalCode);
+  }
+  $modalDl.onclick = () => downloadFile(f);
+}
+
+function closeModal() {
+  $fileModal.hidden = true;
+  document.body.style.overflow = '';
+}
+
+/* ── File download ── */
+function downloadFile(f) {
+  const blob = new Blob([f.content], { type: 'text/plain' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = f.name || f.path.split('/').pop();
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ── Export all as ZIP ── */
+async function exportZip() {
+  if (!window.JSZip || !Object.keys(liveState.files).length) return;
+  $exportBtn.textContent = '⏳ ZIPPING...';
+  const zip = new JSZip();
+  Object.values(liveState.files).forEach(f => zip.file(f.path, f.content));
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `warroom-export-${Date.now()}.zip`; a.click();
+  URL.revokeObjectURL(url);
+  $exportBtn.textContent = '⬇ EXPORT ZIP';
+}
+
+/* ── Crisis banner ── */
+function showCrisisBanner(message) {
+  $crisisBanner.textContent = message;
+  $crisisBanner.className = 'crisis-banner';
+  $crisisBanner.hidden = false;
+  setTimeout(() => { $crisisBanner.hidden = true; }, 8000);
+}
+
+/* ── Customer feedback banner ── */
+function showCustomerBanner(message) {
+  $crisisBanner.textContent = `👤 CUSTOMER: ${message}`;
+  $crisisBanner.className = 'crisis-banner customer-banner';
+  $crisisBanner.hidden = false;
+  setTimeout(() => { $crisisBanner.hidden = true; }, 10000);
+}
+
+/* ── Preview panel ── */
+let _previewRefreshTimer = null;
+
+function reloadPreview() {
+  const $iframe = document.getElementById('preview-iframe');
+  const $status = document.getElementById('preview-status');
+  const $link   = document.getElementById('preview-tab-btn');
+  if (!$iframe) return;
+  const url = `/preview-now?t=${Date.now()}`;
+  $iframe.src = url;
+  if ($status) { $status.textContent = 'LIVE'; $status.classList.add('live'); }
+  if ($link)   $link.href = '/preview/';
+}
+
+function schedulePreviewReload() {
+  if (_previewRefreshTimer) clearTimeout(_previewRefreshTimer);
+  _previewRefreshTimer = setTimeout(() => {
+    _previewRefreshTimer = null;
+    reloadPreview();
+  }, 800);
+}
+
+/* ── Capture iframe screenshot and send to server ── */
+async function capturePreviewScreenshot() {
+  try {
+    const iframe = document.getElementById('preview-iframe');
+    if (!iframe || !iframe.contentDocument || !iframe.contentDocument.body) return;
+    if (typeof html2canvas === 'undefined') return;
+    const canvas = await html2canvas(iframe.contentDocument.body, {
+      backgroundColor: '#07090f', scale: 0.5,
+      width: 900, height: 600, windowWidth: 900, windowHeight: 600,
+      logging: false, useCORS: true,
+    });
+    const base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+    fetch('/api/preview-screenshot', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base64, mediaType: 'image/jpeg' }),
+    });
+  } catch (e) { /* silent */ }
+}
+
+/* ── Session timer ── */
+function startSessionTimer() {
+  if (liveState.timerInterval) clearInterval(liveState.timerInterval);
+  liveState.timerInterval = setInterval(() => {
+    if (!liveState.startTime) return;
+    const s = Math.floor((Date.now() - liveState.startTime) / 1000);
+    const h = String(Math.floor(s / 3600)).padStart(2, '0');
+    const m = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+    const sec = String(s % 60).padStart(2, '0');
+    $sessionTimer.textContent = `${h}:${m}:${sec}`;
+  }, 1000);
+}

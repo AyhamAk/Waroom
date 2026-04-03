@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WAR ROOM // AI COMMAND CENTER</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div class="scanlines" aria-hidden="true"></div>
+
+  <!-- TOP BAR -->
+  <header id="topbar">
+    <div class="topbar-left">
+      <span class="topbar-logo">WAR ROOM</span>
+      <span class="topbar-sub">// AI COMMAND CENTER</span>
+    </div>
+    <div class="topbar-phases" id="phase-indicators">
+      <span class="phase-indicator" id="pi-1">01 ASSEMBLE</span>
+      <span class="phase-sep">›</span>
+      <span class="phase-indicator" id="pi-2">02 EXECUTE</span>
+      <span class="phase-sep">›</span>
+      <span class="phase-indicator" id="pi-3">03 DEBRIEF</span>
+      <span class="phase-sep">›</span>
+      <span class="phase-indicator" id="pi-4">04 LIVE</span>
+    </div>
+    <div class="topbar-right">
+      <span class="budget-label">BUDGET</span>
+      <span id="topbar-budget">1,000,000</span>
+      <span class="budget-unit">TKN</span>
+    </div>
+  </header>
+
+  <!-- ═══════════ PHASE 1 — ASSEMBLE ═══════════ -->
+  <section id="phase-1" class="phase active">
+    <div class="p1-grid-bg" aria-hidden="true"></div>
+
+    <div class="phase-container">
+
+      <!-- Hero -->
+      <div class="p1-hero">
+        <div class="p1-hero-tags">
+          <span class="p1-tag">◈ CLASSIFICATION: TOP SECRET</span>
+          <span class="p1-tag p1-tag--amber">◈ CLEARANCE: ALPHA</span>
+        </div>
+        <h1 class="display-title p1-title">ASSEMBLE<br>YOUR TEAM</h1>
+        <p class="p1-subtitle">Select AI agents &amp; issue a mission brief.<br>This is the only human input the team will receive.</p>
+      </div>
+
+      <!-- Command Source (LLM mode) -->
+      <div class="mode-selector-section" id="mode-selector"></div>
+
+      <!-- Brief -->
+      <div class="brief-block">
+        <div class="brief-block-header">
+          <label class="field-label" for="brief-input">// MISSION BRIEF</label>
+          <span class="brief-hint">ENCRYPTED · SECURE CHANNEL</span>
+        </div>
+        <div class="brief-wrap">
+          <span class="brief-prompt">▶</span>
+          <textarea id="brief-input" class="brief-textarea" placeholder="Describe the product or project you want the team to build. Be specific — agents act autonomously from this point on..." rows="5"></textarea>
+        </div>
+      </div>
+
+      <!-- Category Selector -->
+      <div class="category-section">
+        <label class="field-label">// SELECT TEAM TYPE</label>
+        <div class="category-row" id="category-row"></div>
+      </div>
+
+      <!-- Agents -->
+      <div class="agents-header">
+        <div>
+          <label class="field-label">// DEPLOY ROSTER</label>
+          <p class="agents-sub">Select specialists for this operation</p>
+        </div>
+        <span class="agent-count-badge" id="agent-count-badge">0 SELECTED</span>
+      </div>
+      <div class="agent-grid" id="agent-grid"></div>
+
+      <!-- Budget -->
+      <div class="budget-block">
+        <div class="budget-header">
+          <span class="field-label">// TOKEN BUDGET ESTIMATE</span>
+          <span id="budget-display">0 / 1,000,000</span>
+        </div>
+        <div class="budget-bar-track"><div class="budget-bar-fill" id="budget-bar-fill"></div></div>
+        <div class="budget-footer">
+          <span id="budget-pct">0% of budget committed</span>
+          <span id="budget-agents-cost"></span>
+        </div>
+      </div>
+
+      <button class="deploy-btn" id="deploy-btn" disabled>
+        <span class="deploy-icon">⚡</span> DEPLOY TEAM
+      </button>
+
+    </div>
+  </section>
+
+  <!-- ═══════════ PHASE 2 — BRIEFING ROOM ═══════════ -->
+  <section id="phase-2" class="phase">
+    <div class="warroom-layout">
+      <div class="warroom-main">
+        <div class="mission-banner" id="mission-banner">
+          <span class="mission-label">// ACTIVE MISSION</span>
+          <p id="mission-text"></p>
+        </div>
+        <div class="briefing-table-section">
+          <div class="bt-header">
+            <span class="field-label">// SITUATION ROOM</span>
+            <span class="bt-status" id="bt-status">ASSEMBLING TEAM...</span>
+          </div>
+          <div class="briefing-table">
+            <div class="table-plank"></div>
+            <div class="agents-row" id="agents-row"></div>
+          </div>
+        </div>
+        <div class="active-panel" id="active-panel" hidden>
+          <div class="panel-left">
+            <div class="portrait-stage">
+              <div class="spotlight-cone" id="spotlight-cone"></div>
+              <div class="portrait-ring" id="portrait-ring">
+                <div class="portrait-svg-wrap" id="portrait-svg-wrap"></div>
+              </div>
+            </div>
+            <div class="agent-nameplate">
+              <div class="active-agent-name" id="active-agent-name">—</div>
+              <div class="active-agent-role" id="active-agent-role">—</div>
+              <span class="status-badge" id="active-status-badge">WAITING</span>
+            </div>
+            <div class="thinking-dots" id="thinking-dots"><span></span><span></span><span></span></div>
+          </div>
+          <div class="panel-right">
+            <div class="speech-bubble" id="speech-bubble">
+              <div class="bubble-notch"></div>
+              <div class="bubble-label" id="bubble-label">TRANSMITTING...</div>
+              <div class="bubble-output" id="bubble-output"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <aside class="warroom-sidebar">
+        <div class="sidebar-section">
+          <h3 class="sidebar-title">TOKEN BURN</h3>
+          <div id="token-burn-list" class="token-burn-list"></div>
+          <div class="burn-total"><span>TOTAL BURNED</span><span id="total-burned">0</span></div>
+          <div class="burn-bar-track"><div class="burn-bar-fill" id="burn-bar-fill"></div></div>
+          <div class="burn-pct" id="burn-pct">0% of budget</div>
+        </div>
+        <div class="sidebar-section">
+          <h3 class="sidebar-title">ACTIVITY LOG</h3>
+          <div id="activity-log" class="activity-log"></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ═══════════ PHASE 3 — DELIVERABLES ═══════════ -->
+  <section id="phase-3" class="phase">
+    <div class="phase-container">
+      <div class="section-header">
+        <h1 class="display-title">MISSION DEBRIEF</h1>
+        <p class="section-sub">Full deliverables from all deployed agents</p>
+      </div>
+      <div class="token-report" id="token-report">
+        <div class="report-stat" id="report-total"></div>
+        <div class="report-stat" id="report-pct"></div>
+        <div class="report-stat" id="report-agents"></div>
+      </div>
+      <div class="deliverables-grid" id="deliverables-grid"></div>
+      <div class="phase3-actions">
+        <button class="deploy-btn new-mission-btn" id="new-mission-btn"><span class="deploy-icon">↺</span> NEW MISSION</button>
+        <button class="deploy-btn go-live-btn" id="go-live-btn"><span class="deploy-icon">🟢</span> GO LIVE — LAUNCH STARTUP</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ PHASE 4 — LIVE STARTUP ═══════════ -->
+  <section id="phase-4" class="phase">
+
+    <!-- Controls Bar -->
+    <div class="live-controls">
+      <div class="ctrl-left">
+        <button class="ctrl-btn" id="play-pause-btn" title="Pause / Resume">⏸ PAUSE</button>
+        <div class="speed-group">
+          <span class="ctrl-label">SPEED</span>
+          <button class="speed-btn" data-s="0.5">0.5×</button>
+          <button class="speed-btn active" data-s="1">1×</button>
+          <button class="speed-btn" data-s="2">2×</button>
+          <button class="speed-btn" data-s="3">3×</button>
+        </div>
+        <button class="ctrl-btn crisis-btn" id="crisis-btn">🚨 INJECT CRISIS</button>
+        <button class="ctrl-btn customer-btn" id="customer-btn">👤 CUSTOMER</button>
+      </div>
+      <div class="ctrl-right">
+        <div class="live-stat"><span class="ls-label">TOKENS</span><span class="ls-val" id="live-tokens">0</span></div>
+        <div class="live-stat"><span class="ls-label">UPTIME</span><span class="ls-val" id="session-timer">00:00:00</span></div>
+        <div class="live-indicator"><span class="live-dot"></span>LIVE</div>
+        <button class="ctrl-btn new-mission-live-btn" id="new-mission-live-btn" title="Stop and start a new mission">↺ NEW MISSION</button>
+      </div>
+    </div>
+
+    <!-- Main content: left panels + right preview -->
+    <div class="live-main">
+
+      <!-- Left: 3 operational panels stacked -->
+      <div class="live-left">
+        <div class="live-panels">
+
+          <!-- Panel 1: THE OFFICE -->
+          <div class="live-panel office-panel">
+            <div class="panel-title">THE OFFICE</div>
+            <div class="agent-desks" id="agent-desks"></div>
+          </div>
+
+          <!-- Panel 2: COMM FEED -->
+          <div class="live-panel feed-panel">
+            <div class="panel-title">
+              COMM FEED
+              <span class="msg-count" id="msg-count">0 messages</span>
+            </div>
+            <div class="comm-feed" id="comm-feed"></div>
+          </div>
+
+          <!-- Panel 3: FILE EXPLORER -->
+          <div class="live-panel files-panel">
+            <div class="panel-title">
+              FILE SYSTEM
+              <button class="export-btn" id="export-all-btn">⬇ EXPORT ZIP</button>
+            </div>
+            <div class="file-tree" id="file-tree">
+              <div class="file-tree-empty">No files generated yet...</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Right: LIVE PREVIEW -->
+      <div class="preview-strip" id="preview-strip">
+        <div class="panel-title">
+          LIVE PREVIEW
+          <div style="display:flex;gap:0.5rem;align-items:center;">
+            <span class="preview-status" id="preview-status">waiting for agents...</span>
+            <a class="export-btn" id="preview-tab-btn" href="/preview-now" target="_blank">↗ OPEN IN TAB</a>
+          </div>
+        </div>
+        <div class="preview-frame-wrap">
+          <iframe id="preview-iframe" src="about:blank" sandbox="allow-scripts allow-same-origin allow-forms" title="Live Preview"></iframe>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Countdown Overlay -->
+    <div class="countdown-overlay" id="countdown-overlay" hidden>
+      <div class="countdown-inner">
+        <div class="countdown-label">TEAM GOING LIVE IN</div>
+        <div class="countdown-number" id="countdown-number">3</div>
+        <div class="countdown-sub">Deploying all agents...</div>
+      </div>
+    </div>
+
+    <!-- Crisis Banner -->
+    <div class="crisis-banner" id="crisis-banner" hidden></div>
+
+  </section>
+
+  <!-- Customer Feedback Modal -->
+  <div class="customer-modal" id="customer-modal" hidden>
+    <div class="customer-modal-backdrop" id="customer-modal-backdrop"></div>
+    <div class="customer-modal-content">
+      <div class="customer-modal-header">
+        <span>👤 CUSTOMER FEEDBACK</span>
+        <button class="modal-btn modal-close" id="customer-modal-close">✕</button>
+      </div>
+      <p class="customer-modal-hint">Your message will be delivered to the CEO at the start of the next cycle as top priority.</p>
+      <textarea id="customer-feedback-input" class="customer-feedback-textarea" placeholder="e.g. The login button doesn't work. I need a dark mode toggle. Can you add a pricing page?" rows="4"></textarea>
+      <button class="deploy-btn customer-send-btn" id="customer-send-btn">SEND FEEDBACK</button>
+    </div>
+  </div>
+
+  <!-- File Preview Modal -->
+  <div class="file-modal" id="file-modal" hidden>
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="modal-filename" id="modal-filename"></span>
+        <div class="modal-actions">
+          <button class="modal-btn" id="modal-download-btn">⬇ Download</button>
+          <button class="modal-btn modal-close" id="modal-close-btn">✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <pre class="modal-pre"><code id="modal-code"></code></pre>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="data.js"></script>
+  <script src="state.js"></script>
+  <script src="utils.js"></script>
+  <script src="app.js"></script>
+  <script src="phase1.js"></script>
+  <script src="phase2.js"></script>
+  <script src="phase3.js"></script>
+  <script src="phase4.js"></script>
+  <script src="init.js"></script>
+</body>
+</html>
