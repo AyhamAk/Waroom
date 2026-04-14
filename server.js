@@ -8,7 +8,6 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const vm = require('vm');
 
 const {
   live, setLive,
@@ -52,38 +51,27 @@ app.get('/preview-now', (req, res) => {
   if (!fs.existsSync(indexFile)) return res.send(loadingScreen('CYCLE 1 IN PROGRESS'));
   let html = fs.readFileSync(indexFile, 'utf8');
 
-  const cssFile = path.join(live.workspaceDir, 'public', 'style.css');
-  const jsFile  = path.join(live.workspaceDir, 'public', 'app.js');
-  const css = fs.existsSync(cssFile) ? fs.readFileSync(cssFile, 'utf8') : '';
-  let jsInline = '';
-  if (fs.existsSync(jsFile)) {
-    const js = fs.readFileSync(jsFile, 'utf8');
-    try {
-      new vm.Script(js);
-      jsInline = js;
-    } catch (e) {
-      console.warn('[preview] app.js syntax error:', e.message);
-      jsInline = `try {\n${js}\n} catch(e) { console.warn('[warroom] app.js error:', e.message); }`;
-    }
-  }
+  // Rewrite all relative asset URLs to /preview/... so they resolve correctly
+  // from within the iframe, regardless of the parent page's URL.
+  // This avoids inlining JS into <script> tags entirely — which was causing
+  // SyntaxError when generated JS contained </script> inside strings or templates.
+  html = html.replace(
+    /((?:src|href)=["'])(?!https?:|\/\/|\/|data:|#)([^"']*)(["'])/gi,
+    '$1/preview/$2$3'
+  );
 
-  const safeJs  = jsInline.replace(/<\/script>/gi, '<\\/script>');
-  const safeCss = css.replace(/<\/style>/gi,  '<\\/style>');
-
-  const jsTail = (safeJs ? `<script>\n${safeJs}\n</script>\n` : '')
-               + `<script>setTimeout(function(){location.reload()},5000)</script>`;
+  // Inject auto-reload
+  const reloadScript = '<script>setTimeout(function(){location.reload()},5000)</script>';
 
   if (!/<html[\s>]/i.test(html)) {
-    html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Preview</title>${safeCss ? `<style>\n${safeCss}\n</style>` : ''}</head><body>\n${html}\n${jsTail}</body></html>`;
+    // Bare HTML fragment — wrap in a full document with asset references
+    html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Preview</title><link rel="stylesheet" href="/preview/style.css"></head><body>\n${html}\n<script src="/preview/data.js"></script>\n<script src="/preview/app.js"></script>\n${reloadScript}\n</body></html>`;
   } else {
-    if (safeCss) html = html.replace(/<link\b[^>]*\bhref=["'][./]*style\.css["'][^>]*\/?>/gi, `<style>\n${safeCss}\n</style>`);
-    html = html.replace(/<script\s[^>]*src=["'][./]*app\.js["'][^>]*><\/script>/gi, '');
-    const styleOpens  = (html.match(/<style\b/gi)  || []).length;
-    const styleCloses = (html.match(/<\/style>/gi) || []).length;
-    if (styleOpens > styleCloses) html += '\n</style>';
-    if (!html.includes('</body>')) html += '\n</body></html>';
-    html = html.replace('</body>', jsTail + '</body>');
+    html = html.includes('</body>')
+      ? html.replace('</body>', reloadScript + '</body>')
+      : html + reloadScript;
   }
+
   res.send(html);
 });
 
@@ -165,6 +153,15 @@ app.get('/api/stream', (req, res) => {
   req.on('close', () => removeClient(res));
 });
 
+/* Store console errors from preview iframe */
+app.post('/api/console-errors', (req, res) => {
+  const { errors } = req.body;
+  if (Array.isArray(errors) && errors.length) {
+    live.consoleErrors = errors;
+  }
+  res.json({ ok: true });
+});
+
 /* Store preview screenshot from client */
 app.post('/api/preview-screenshot', (req, res) => {
   const { base64, mediaType } = req.body;
@@ -187,27 +184,8 @@ app.post('/api/start-live', (req, res) => {
   stopAll();
   const sessionId = Date.now().toString();
   const wsDir = path.join(__dirname, 'workspace', sessionId);
-  ['docs', 'src/components', 'src/types', 'src/__tests__', 'tests', 'sales', 'public'].forEach(d =>
-    fs.mkdirSync(path.join(wsDir, d), { recursive: true }));
-
-  const briefSlug = brief.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').toLowerCase();
-  fs.writeFileSync(path.join(wsDir, 'package.json'), JSON.stringify({
-    name: briefSlug, version: '0.1.0', private: true,
-    scripts: { dev: 'vite', build: 'tsc && vite build', preview: 'vite preview' },
-    dependencies: { react: '^18.2.0', 'react-dom': '^18.2.0' },
-    devDependencies: { '@types/react': '^18.2.0', '@types/react-dom': '^18.2.0', '@vitejs/plugin-react': '^4.2.0', typescript: '^5.3.0', vite: '^5.0.0' }
-  }, null, 2));
-  fs.writeFileSync(path.join(wsDir, 'tsconfig.json'), JSON.stringify({
-    compilerOptions: { target: 'ES2020', useDefineForClassFields: true, lib: ['ES2020','DOM','DOM.Iterable'], module: 'ESNext', skipLibCheck: true, moduleResolution: 'bundler', allowImportingTsExtensions: true, resolveJsonModule: true, isolatedModules: true, noEmit: true, jsx: 'react-jsx', strict: true, noUnusedLocals: true, noUnusedParameters: true, noFallthroughCasesInSwitch: true },
-    include: ['src'], references: [{ path: './tsconfig.node.json' }]
-  }, null, 2));
-  fs.writeFileSync(path.join(wsDir, 'vite.config.ts'),
-    `import { defineConfig } from 'vite'\nimport react from '@vitejs/plugin-react'\nexport default defineConfig({ plugins: [react()] })\n`);
-  fs.writeFileSync(path.join(wsDir, 'src', 'main.tsx'),
-    `import React from 'react'\nimport ReactDOM from 'react-dom/client'\nimport App from './App'\nimport './index.css'\n\nReactDOM.createRoot(document.getElementById('root')!).render(\n  <React.StrictMode>\n    <App />\n  </React.StrictMode>\n)\n`);
-  fs.writeFileSync(path.join(wsDir, 'src', 'App.tsx'),
-    `import React from 'react'\n\n// Components will be imported here as agents build them\n\nexport default function App() {\n  return (\n    <div className="app">\n      <h1>Building...</h1>\n    </div>\n  )\n}\n`);
-  fs.writeFileSync(path.join(wsDir, 'src', 'types', 'index.ts'), `// Shared TypeScript types\n\nexport interface BaseProps {\n  className?: string\n}\n`);
+  // Only create directories actually needed — no React/TS scaffold that confuses agents
+  ['docs', 'public', 'logs'].forEach(d => fs.mkdirSync(path.join(wsDir, d), { recursive: true }));
 
   setLive({
     running: true, paused: false, speed: 1,
@@ -219,7 +197,7 @@ app.post('/api/start-live', (req, res) => {
     contexts: {}, timers: {}, tokens: 0,
     startTime: Date.now(), clients: require('./pipeline').live.clients,
     files: [], salesV: 1, msgCount: 0, cycle: 0, pastPriorities: [],
-    previewScreenshot: null,
+    previewScreenshot: null, consoleErrors: [],
   });
 
   res.json({ ok: true, sessionId });

@@ -1,0 +1,1451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>War Room — Architecture</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #06060f;
+    --surface:   #0d0d1a;
+    --border:    rgba(255,255,255,0.07);
+    --text:      #e2e2f0;
+    --muted:     #6b6b8a;
+    --ceo:       #00e676;
+    --le:        #4fc3f7;
+    --designer:  #ce93d8;
+    --builder:   #ffb74d;
+    --qa:        #80cbc4;
+    --sales:     #f06292;
+    --tool:      #aaa;
+    --auto:      #7c83ff;
+  }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ═══ BACKGROUND ═══ */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 20% 20%, rgba(0,230,118,0.04) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 80% at 80% 80%, rgba(79,195,247,0.04) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 50% at 50% 50%, rgba(124,131,255,0.03) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .grid-bg {
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+    z-index: 0;
+    mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 40%, transparent 100%);
+  }
+
+  /* ═══ LAYOUT ═══ */
+  .page { position: relative; z-index: 1; }
+
+  /* ═══ HEADER ═══ */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 28px 48px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .logo-icon {
+    width: 44px;
+    height: 44px;
+    background: linear-gradient(135deg, var(--ceo), #00897b);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    box-shadow: 0 0 24px rgba(0,230,118,0.3);
+  }
+
+  .logo-text h1 {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .logo-text p {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    margin-top: 3px;
+    text-transform: uppercase;
+  }
+
+  .header-meta {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+  }
+
+  .badge {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 5px 14px;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+  }
+
+  .badge.live {
+    border-color: rgba(0,230,118,0.3);
+    color: var(--ceo);
+    background: rgba(0,230,118,0.06);
+  }
+
+  .badge.live::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background: var(--ceo);
+    border-radius: 50%;
+    margin-right: 7px;
+    animation: blink 1.8s ease-in-out infinite;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.2; }
+  }
+
+  /* ═══ STATS BAR ═══ */
+  .stats-bar {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+
+  .stat {
+    flex: 1;
+    min-width: 140px;
+    padding: 18px 24px;
+    border-right: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .stat:last-child { border-right: none; }
+
+  .stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--text);
+  }
+
+  .stat-label {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .stat-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    border-radius: 2px;
+    animation: grow 1.5s ease-out forwards;
+  }
+
+  @keyframes grow {
+    from { width: 0; }
+  }
+
+  /* ═══ MAIN SECTIONS ═══ */
+  .section {
+    padding: 48px;
+  }
+
+  .section-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 32px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ═══ PIPELINE DIAGRAM ═══ */
+  .diagram-wrap {
+    position: relative;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .diagram {
+    position: relative;
+    width: 1200px;
+    height: 640px;
+    margin: 0 auto;
+  }
+
+  /* SVG connections */
+  .diagram svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    overflow: visible;
+  }
+
+  .conn {
+    fill: none;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    opacity: 0.35;
+  }
+
+  .conn-main {
+    stroke-dasharray: 6 4;
+    animation: dash 3s linear infinite;
+  }
+
+  .conn-tool {
+    stroke-dasharray: 3 5;
+    animation: dash 4s linear infinite;
+  }
+
+  .conn-loop {
+    stroke-dasharray: 4 6;
+    animation: dash 5s linear infinite reverse;
+  }
+
+  @keyframes dash {
+    to { stroke-dashoffset: -80; }
+  }
+
+  /* Flow dots */
+  .dot { opacity: 0.9; }
+
+  /* ═══ NODE ═══ */
+  .node {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+    transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1);
+    z-index: 2;
+  }
+
+  .node:hover { transform: translate(-50%, -50%) scale(1.06); }
+  .node:hover .node-card { box-shadow: 0 0 0 1px var(--node-color, #fff), 0 8px 40px rgba(0,0,0,0.6), 0 0 40px -4px var(--node-color, #fff); }
+
+  .node-card {
+    background: rgba(255,255,255,0.04);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px;
+    padding: 18px 20px;
+    transition: box-shadow 0.25s ease, border-color 0.25s ease;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+
+  .node-card.builder-card {
+    border-radius: 20px;
+    padding: 24px 28px;
+  }
+
+  .node-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    margin-bottom: 10px;
+  }
+
+  .node-icon.sm {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+  }
+
+  .node-name {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    line-height: 1;
+  }
+
+  .node-role {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 3px;
+    letter-spacing: 0.05em;
+  }
+
+  .node-tokens {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 8px;
+    font-size: 9px;
+    color: var(--muted);
+    background: rgba(255,255,255,0.05);
+    border-radius: 4px;
+    padding: 2px 7px;
+  }
+
+  .node-tokens::before {
+    content: '⚡';
+    font-size: 9px;
+  }
+
+  /* Tool/auto nodes */
+  .node-mini .node-card {
+    padding: 12px 16px;
+    border-radius: 12px;
+  }
+
+  .node-mini .node-name { font-size: 11px; }
+  .node-mini .node-role { font-size: 9px; }
+
+  /* Input node */
+  .node-input .node-card {
+    padding: 10px 14px;
+    border-radius: 10px;
+    border-style: dashed;
+  }
+
+  /* Pulse ring */
+  .pulse-ring {
+    position: absolute;
+    inset: -8px;
+    border-radius: 22px;
+    border: 1.5px solid var(--node-color);
+    opacity: 0;
+    animation: pulseRing 3s ease-out infinite;
+    pointer-events: none;
+  }
+
+  .node-builder .pulse-ring {
+    inset: -10px;
+    border-radius: 28px;
+    animation-duration: 2.5s;
+  }
+
+  @keyframes pulseRing {
+    0%   { opacity: 0; transform: scale(0.95); }
+    40%  { opacity: 0.25; }
+    100% { opacity: 0; transform: scale(1.06); }
+  }
+
+  /* Flow labels on connections */
+  .flow-label {
+    position: absolute;
+    font-size: 9px;
+    color: var(--muted);
+    white-space: nowrap;
+    letter-spacing: 0.04em;
+    background: var(--bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    pointer-events: none;
+  }
+
+  /* ═══ CYCLE BADGE ═══ */
+  .cycle-badge {
+    position: absolute;
+    background: rgba(124,131,255,0.12);
+    border: 1px solid rgba(124,131,255,0.3);
+    border-radius: 20px;
+    padding: 6px 16px;
+    font-size: 10px;
+    color: #7c83ff;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  /* ═══ PHASE LABELS ═══ */
+  .phase-label {
+    position: absolute;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+    pointer-events: none;
+  }
+
+  /* ═══ DETAIL PANEL ═══ */
+  .detail-panel {
+    position: fixed;
+    top: 50%;
+    right: 40px;
+    transform: translateY(-50%);
+    width: 280px;
+    background: rgba(13,13,26,0.95);
+    backdrop-filter: blur(32px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 20px;
+    padding: 24px;
+    z-index: 100;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    transform: translateY(-50%) translateX(10px);
+    box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+  }
+
+  .detail-panel.visible {
+    opacity: 1;
+    pointer-events: all;
+    transform: translateY(-50%) translateX(0);
+  }
+
+  .detail-panel h3 {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  .detail-panel .role {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+
+  .detail-section { margin-bottom: 14px; }
+
+  .detail-section h4 {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+
+  .detail-chip {
+    display: inline-block;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 10px;
+    color: #ccc;
+    margin: 2px;
+  }
+
+  .detail-panel .close-btn {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    transition: color 0.15s;
+  }
+
+  .detail-panel .close-btn:hover { color: var(--text); }
+
+  /* ═══ TOOLS GRID ═══ */
+  .tools-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+  }
+
+  .tool-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px 24px;
+    transition: background 0.2s, border-color 0.2s;
+    cursor: default;
+  }
+
+  .tool-card:hover {
+    background: rgba(255,255,255,0.05);
+    border-color: rgba(255,255,255,0.12);
+  }
+
+  .tool-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .tool-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    flex-shrink: 0;
+  }
+
+  .tool-name {
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .tool-sub {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 1px;
+  }
+
+  .tool-desc {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  /* ═══ DEFENSE LAYERS ═══ */
+  .defense-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: 640px;
+  }
+
+  .defense-layer {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 18px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--border);
+    transition: background 0.2s;
+  }
+
+  .defense-layer:hover { background: rgba(255,255,255,0.05); }
+
+  .defense-num {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .defense-layer-name {
+    font-size: 13px;
+    font-weight: 600;
+    min-width: 140px;
+  }
+
+  .defense-layer-desc {
+    font-size: 11px;
+    color: var(--muted);
+    flex: 1;
+  }
+
+  .defense-status {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(0,230,118,0.1);
+    color: var(--ceo);
+    border: 1px solid rgba(0,230,118,0.2);
+  }
+
+  /* ═══ FILES SECTION ═══ */
+  .files-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .file-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 16px;
+    transition: all 0.2s;
+    cursor: default;
+  }
+
+  .file-chip:hover {
+    background: rgba(255,255,255,0.07);
+    transform: translateY(-1px);
+  }
+
+  .file-chip-icon { font-size: 16px; }
+
+  .file-chip-info { }
+
+  .file-chip-name {
+    font-size: 12px;
+    font-weight: 600;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+  }
+
+  .file-chip-desc {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 1px;
+  }
+
+  /* ═══ FLOW LEGEND ═══ */
+  .legend {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    margin-top: 20px;
+    padding: 14px 20px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: fit-content;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .legend-line {
+    width: 28px;
+    height: 2px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  .legend-line.dashed {
+    background: none;
+    border-top: 2px dashed;
+  }
+
+  /* ═══ FOOTER ═══ */
+  .footer {
+    border-top: 1px solid var(--border);
+    padding: 20px 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .footer p {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* Fade in animation */
+  .fade-in {
+    opacity: 0;
+    transform: translateY(12px);
+    animation: fadeUp 0.5s ease forwards;
+  }
+
+  @keyframes fadeUp {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .fade-in:nth-child(1) { animation-delay: 0.05s; }
+  .fade-in:nth-child(2) { animation-delay: 0.1s; }
+  .fade-in:nth-child(3) { animation-delay: 0.15s; }
+  .fade-in:nth-child(4) { animation-delay: 0.2s; }
+  .fade-in:nth-child(5) { animation-delay: 0.25s; }
+  .fade-in:nth-child(6) { animation-delay: 0.3s; }
+  .fade-in:nth-child(7) { animation-delay: 0.35s; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+
+<div class="page">
+
+  <!-- ── HEADER ── -->
+  <header class="header">
+    <div class="logo">
+      <div class="logo-icon">⚔</div>
+      <div class="logo-text">
+        <h1>WAR ROOM</h1>
+        <p>Multi-Agent AI App Builder</p>
+      </div>
+    </div>
+    <div class="header-meta">
+      <span class="badge">Node.js · Express · SSE</span>
+      <span class="badge">Anthropic Claude</span>
+      <span class="badge live">Live Pipeline</span>
+    </div>
+  </header>
+
+  <!-- ── STATS BAR ── -->
+  <div class="stats-bar">
+    <div class="stat fade-in">
+      <div class="stat-value" style="color: var(--ceo)">6</div>
+      <div class="stat-label">AI Agents</div>
+      <div class="stat-bar" style="background: var(--ceo); width: 85%"></div>
+    </div>
+    <div class="stat fade-in">
+      <div class="stat-value" style="color: var(--le)">3</div>
+      <div class="stat-label">Integrated Tools</div>
+      <div class="stat-bar" style="background: var(--le); width: 60%"></div>
+    </div>
+    <div class="stat fade-in">
+      <div class="stat-value" style="color: var(--auto)">3</div>
+      <div class="stat-label">Auto-Systems</div>
+      <div class="stat-bar" style="background: var(--auto); width: 60%"></div>
+    </div>
+    <div class="stat fade-in">
+      <div class="stat-value" style="color: var(--builder)">28K</div>
+      <div class="stat-label">Max Tokens / Cycle</div>
+      <div class="stat-bar" style="background: var(--builder); width: 95%"></div>
+    </div>
+    <div class="stat fade-in">
+      <div class="stat-value" style="color: var(--qa)">4</div>
+      <div class="stat-label">TS Defense Layers</div>
+      <div class="stat-bar" style="background: var(--qa); width: 70%"></div>
+    </div>
+    <div class="stat fade-in">
+      <div class="stat-value" style="color: var(--designer)">∞</div>
+      <div class="stat-label">Build Cycles</div>
+      <div class="stat-bar" style="background: var(--designer); width: 100%"></div>
+    </div>
+  </div>
+
+  <!-- ── PIPELINE DIAGRAM ── -->
+  <section class="section" style="padding-bottom: 0">
+    <div class="section-title">Pipeline Architecture — click any node for details</div>
+
+    <div class="diagram-wrap">
+      <div class="diagram" id="diagram">
+
+        <!-- ─── SVG CONNECTIONS ─── -->
+        <svg viewBox="0 0 1200 640" preserveAspectRatio="none">
+          <defs>
+            <!-- Arrow marker per color -->
+            <marker id="arrow-ceo" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3 z" fill="var(--ceo)" opacity="0.6"/>
+            </marker>
+            <marker id="arrow-le" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3 z" fill="var(--le)" opacity="0.6"/>
+            </marker>
+            <marker id="arrow-designer" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3 z" fill="var(--designer)" opacity="0.6"/>
+            </marker>
+            <marker id="arrow-builder" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3 z" fill="var(--builder)" opacity="0.6"/>
+            </marker>
+            <marker id="arrow-qa" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3 z" fill="var(--qa)" opacity="0.6"/>
+            </marker>
+            <marker id="arrow-sales" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3 z" fill="var(--sales)" opacity="0.6"/>
+            </marker>
+            <marker id="arrow-auto" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3 z" fill="var(--auto)" opacity="0.6"/>
+            </marker>
+            <marker id="arrow-muted" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3 z" fill="#666" opacity="0.6"/>
+            </marker>
+          </defs>
+
+          <!-- Vision → CEO -->
+          <path id="p-vision-ceo" class="conn conn-main" stroke="var(--ceo)"
+            d="M 140 110 C 140 180, 180 220, 200 258" marker-end="url(#arrow-ceo)"/>
+
+          <!-- Sales → CEO -->
+          <path id="p-sales-ceo" class="conn conn-main" stroke="var(--sales)"
+            d="M 100 218 C 100 240, 150 270, 172 298" marker-end="url(#arrow-sales)"/>
+
+          <!-- CEO → LE -->
+          <path id="p-ceo-le" class="conn conn-main" stroke="var(--ceo)"
+            d="M 248 280 C 330 280, 350 200, 418 200" marker-end="url(#arrow-ceo)"/>
+
+          <!-- CEO → Designer -->
+          <path id="p-ceo-designer" class="conn conn-main" stroke="var(--ceo)"
+            d="M 248 310 C 320 310, 370 400, 418 410" marker-end="url(#arrow-ceo)"/>
+
+          <!-- LE → Builder -->
+          <path id="p-le-builder" class="conn conn-main" stroke="var(--le)"
+            d="M 530 200 C 590 200, 610 280, 640 295" marker-end="url(#arrow-le)"/>
+
+          <!-- Designer → Builder -->
+          <path id="p-designer-builder" class="conn conn-main" stroke="var(--designer)"
+            d="M 530 410 C 580 410, 620 340, 640 325" marker-end="url(#arrow-designer)"/>
+
+          <!-- Builder → CSS Specialist -->
+          <path id="p-builder-css" class="conn conn-tool" stroke="var(--auto)"
+            d="M 770 288 C 840 260, 870 200, 900 195" marker-end="url(#arrow-auto)"/>
+
+          <!-- Builder → Coverage -->
+          <path id="p-builder-cov" class="conn conn-tool" stroke="var(--auto)"
+            d="M 770 310 C 835 310, 880 330, 905 340" marker-end="url(#arrow-auto)"/>
+
+          <!-- Builder → Ensurer -->
+          <path id="p-builder-ensure" class="conn conn-tool" stroke="var(--auto)"
+            d="M 770 325 C 840 350, 870 415, 900 435" marker-end="url(#arrow-auto)"/>
+
+          <!-- Builder → QA -->
+          <path id="p-builder-qa" class="conn conn-main" stroke="var(--builder)"
+            d="M 760 345 C 820 400, 870 470, 900 500" marker-end="url(#arrow-builder)"/>
+
+          <!-- QA → LE feedback -->
+          <path id="p-qa-le" class="conn conn-loop" stroke="var(--qa)"
+            d="M 910 490 C 910 570, 400 570, 470 220" marker-end="url(#arrow-qa)"/>
+
+          <!-- Loop: QA done → CEO (new cycle) -->
+          <path id="p-loop" class="conn conn-loop" stroke="#7c83ff"
+            d="M 960 505 C 1080 580, 1120 60, 300 60, 200 60, 140 100, 140 110" marker-end="url(#arrow-auto)"/>
+
+          <!-- CEO → Vision request (screenshot request) -->
+          <path id="p-ceo-vision" class="conn conn-tool" stroke="var(--muted)"
+            stroke-dasharray="2 6" opacity="0.2"
+            d="M 185 262 C 160 240, 138 200, 136 115" marker-end="url(#arrow-muted)"/>
+
+          <!-- ── Animated flow dots ── -->
+
+          <!-- Vision → CEO dots -->
+          <circle r="3.5" fill="var(--ceo)" class="dot"><animateMotion dur="2.4s" repeatCount="indefinite" begin="0s"><mpath href="#p-vision-ceo"/></animateMotion></circle>
+          <circle r="2.5" fill="var(--ceo)" class="dot" opacity="0.5"><animateMotion dur="2.4s" repeatCount="indefinite" begin="0.8s"><mpath href="#p-vision-ceo"/></animateMotion></circle>
+
+          <!-- Sales → CEO dots -->
+          <circle r="3" fill="var(--sales)" class="dot"><animateMotion dur="2s" repeatCount="indefinite" begin="0.3s"><mpath href="#p-sales-ceo"/></animateMotion></circle>
+
+          <!-- CEO → LE dots -->
+          <circle r="3.5" fill="var(--ceo)" class="dot"><animateMotion dur="2.8s" repeatCount="indefinite" begin="0s"><mpath href="#p-ceo-le"/></animateMotion></circle>
+          <circle r="2.5" fill="var(--ceo)" class="dot" opacity="0.5"><animateMotion dur="2.8s" repeatCount="indefinite" begin="1s"><mpath href="#p-ceo-le"/></animateMotion></circle>
+
+          <!-- CEO → Designer dots -->
+          <circle r="3.5" fill="var(--ceo)" class="dot"><animateMotion dur="2.8s" repeatCount="indefinite" begin="0.5s"><mpath href="#p-ceo-designer"/></animateMotion></circle>
+          <circle r="2.5" fill="var(--ceo)" class="dot" opacity="0.5"><animateMotion dur="2.8s" repeatCount="indefinite" begin="1.5s"><mpath href="#p-ceo-designer"/></animateMotion></circle>
+
+          <!-- LE → Builder dots -->
+          <circle r="3.5" fill="var(--le)" class="dot"><animateMotion dur="2.2s" repeatCount="indefinite" begin="0.2s"><mpath href="#p-le-builder"/></animateMotion></circle>
+          <circle r="2.5" fill="var(--le)" class="dot" opacity="0.5"><animateMotion dur="2.2s" repeatCount="indefinite" begin="1.1s"><mpath href="#p-le-builder"/></animateMotion></circle>
+
+          <!-- Designer → Builder dots -->
+          <circle r="3.5" fill="var(--designer)" class="dot"><animateMotion dur="2.2s" repeatCount="indefinite" begin="0.6s"><mpath href="#p-designer-builder"/></animateMotion></circle>
+          <circle r="2.5" fill="var(--designer)" class="dot" opacity="0.5"><animateMotion dur="2.2s" repeatCount="indefinite" begin="1.4s"><mpath href="#p-designer-builder"/></animateMotion></circle>
+
+          <!-- Builder → CSS Spec dots -->
+          <circle r="3" fill="var(--auto)" class="dot"><animateMotion dur="2s" repeatCount="indefinite" begin="0.1s"><mpath href="#p-builder-css"/></animateMotion></circle>
+          <circle r="2" fill="var(--auto)" class="dot" opacity="0.5"><animateMotion dur="2s" repeatCount="indefinite" begin="1s"><mpath href="#p-builder-css"/></animateMotion></circle>
+
+          <!-- Builder → Coverage dots -->
+          <circle r="3" fill="var(--auto)" class="dot"><animateMotion dur="2s" repeatCount="indefinite" begin="0.4s"><mpath href="#p-builder-cov"/></animateMotion></circle>
+
+          <!-- Builder → Ensurer dots -->
+          <circle r="3" fill="var(--auto)" class="dot"><animateMotion dur="2s" repeatCount="indefinite" begin="0.7s"><mpath href="#p-builder-ensure"/></animateMotion></circle>
+
+          <!-- Builder → QA dots -->
+          <circle r="3.5" fill="var(--builder)" class="dot"><animateMotion dur="2.6s" repeatCount="indefinite" begin="0.2s"><mpath href="#p-builder-qa"/></animateMotion></circle>
+          <circle r="2.5" fill="var(--builder)" class="dot" opacity="0.5"><animateMotion dur="2.6s" repeatCount="indefinite" begin="1.3s"><mpath href="#p-builder-qa"/></animateMotion></circle>
+
+          <!-- QA → LE dots -->
+          <circle r="2.5" fill="var(--qa)" class="dot"><animateMotion dur="4s" repeatCount="indefinite" begin="0s"><mpath href="#p-qa-le"/></animateMotion></circle>
+          <circle r="2" fill="var(--qa)" class="dot" opacity="0.4"><animateMotion dur="4s" repeatCount="indefinite" begin="2s"><mpath href="#p-qa-le"/></animateMotion></circle>
+
+          <!-- Loop dots -->
+          <circle r="4" fill="#7c83ff" class="dot"><animateMotion dur="6s" repeatCount="indefinite" begin="0s"><mpath href="#p-loop"/></animateMotion></circle>
+          <circle r="2.5" fill="#7c83ff" class="dot" opacity="0.5"><animateMotion dur="6s" repeatCount="indefinite" begin="2s"><mpath href="#p-loop"/></animateMotion></circle>
+          <circle r="2" fill="#7c83ff" class="dot" opacity="0.3"><animateMotion dur="6s" repeatCount="indefinite" begin="4s"><mpath href="#p-loop"/></animateMotion></circle>
+        </svg>
+
+        <!-- ── PHASE LABELS ── -->
+        <span class="phase-label" style="left:60px;top:18px;color:var(--muted)">INPUTS</span>
+        <span class="phase-label" style="left:150px;top:18px;color:var(--muted)">DECISION</span>
+        <span class="phase-label" style="left:390px;top:18px;color:var(--muted)">PLANNING</span>
+        <span class="phase-label" style="left:640px;top:18px;color:var(--muted)">BUILD</span>
+        <span class="phase-label" style="left:870px;top:18px;color:var(--muted)">QUALITY</span>
+
+        <!-- ── LOOP BADGE ── -->
+        <div class="cycle-badge" style="left:520px;top:24px">↺ Continuous Cycle</div>
+
+        <!-- ── NODE: Vision ── -->
+        <div class="node node-input" style="left:140px;top:100px"
+          data-agent="vision"
+          onclick="showDetail(this)">
+          <div class="node-card" style="--node-color:#888;border-color:rgba(255,255,255,0.12)">
+            <div class="node-icon sm" style="background:rgba(255,255,255,0.07)">📸</div>
+            <div class="node-name" style="color:#aaa">Screenshot</div>
+            <div class="node-role">Browser preview → CEO</div>
+          </div>
+        </div>
+
+        <!-- ── NODE: Sales ── -->
+        <div class="node node-mini" style="left:100px;top:208px"
+          style="--node-color:var(--sales)"
+          data-agent="sales"
+          onclick="showDetail(this)">
+          <div class="node-card" style="--node-color:var(--sales);border-color:rgba(240,98,146,0.2)">
+            <div class="pulse-ring" style="border-color:var(--sales)"></div>
+            <div class="node-icon sm" style="background:rgba(240,98,146,0.15);color:var(--sales)">💼</div>
+            <div class="node-name" style="color:var(--sales)">Sales Lead</div>
+            <div class="node-role">Customer feedback</div>
+            <div class="node-tokens">600 tokens</div>
+          </div>
+        </div>
+
+        <!-- ── NODE: CEO ── -->
+        <div class="node" style="left:210px;top:295px"
+          data-agent="ceo"
+          onclick="showDetail(this)">
+          <div class="node-card" style="--node-color:var(--ceo);border-color:rgba(0,230,118,0.25)">
+            <div class="pulse-ring" style="border-color:var(--ceo)"></div>
+            <div class="node-icon" style="background:rgba(0,230,118,0.15);color:var(--ceo)">👔</div>
+            <div class="node-name" style="color:var(--ceo)">CEO</div>
+            <div class="node-role">Chief Executive</div>
+            <div class="node-tokens">800 tokens</div>
+          </div>
+        </div>
+
+        <!-- ── NODE: Lead Engineer ── -->
+        <div class="node" style="left:474px;top:200px"
+          data-agent="lead-eng"
+          onclick="showDetail(this)">
+          <div class="node-card" style="--node-color:var(--le);border-color:rgba(79,195,247,0.25)">
+            <div class="pulse-ring" style="border-color:var(--le)"></div>
+            <div class="node-icon" style="background:rgba(79,195,247,0.15);color:var(--le)">🔧</div>
+            <div class="node-name" style="color:var(--le)">Lead Engineer</div>
+            <div class="node-role">Technical Planning</div>
+            <div class="node-tokens">2000 tokens</div>
+          </div>
+        </div>
+
+        <!-- ── NODE: Designer ── -->
+        <div class="node" style="left:474px;top:415px"
+          data-agent="designer"
+          onclick="showDetail(this)">
+          <div class="node-card" style="--node-color:var(--designer);border-color:rgba(206,147,216,0.25)">
+            <div class="pulse-ring" style="border-color:var(--designer)"></div>
+            <div class="node-icon" style="background:rgba(206,147,216,0.15);color:var(--designer)">🎨</div>
+            <div class="node-name" style="color:var(--designer)">UI Designer</div>
+            <div class="node-role">Design Spec</div>
+            <div class="node-tokens">800 tokens</div>
+          </div>
+        </div>
+
+        <!-- ── NODE: Builder (MAIN) ── -->
+        <div class="node node-builder" style="left:710px;top:310px"
+          data-agent="builder"
+          onclick="showDetail(this)">
+          <div class="node-card builder-card" style="--node-color:var(--builder);border-color:rgba(255,183,77,0.3);background:rgba(255,183,77,0.05)">
+            <div class="pulse-ring" style="border-color:var(--builder)"></div>
+            <div class="pulse-ring" style="border-color:var(--builder);animation-delay:1.25s"></div>
+            <div class="node-icon" style="background:rgba(255,183,77,0.2);color:var(--builder);width:44px;height:44px;font-size:22px;border-radius:12px">💻</div>
+            <div class="node-name" style="color:var(--builder);font-size:16px">Developer</div>
+            <div class="node-role" style="font-size:11px">Full-Stack Builder</div>
+            <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+              <span style="font-size:9px;background:rgba(255,183,77,0.12);border:1px solid rgba(255,183,77,0.2);border-radius:4px;padding:2px 7px;color:var(--builder)">⚡ 16K tokens</span>
+              <span style="font-size:9px;background:rgba(255,183,77,0.12);border:1px solid rgba(255,183,77,0.2);border-radius:4px;padding:2px 7px;color:var(--builder)">28K max w/ continuation</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── NODE: CSS Specialist ── -->
+        <div class="node node-mini" style="left:960px;top:192px"
+          data-agent="css-specialist"
+          onclick="showDetail(this)">
+          <div class="node-card" style="--node-color:var(--auto);border-color:rgba(124,131,255,0.25)">
+            <div class="pulse-ring" style="border-color:var(--auto)"></div>
+            <div class="node-icon sm" style="background:rgba(124,131,255,0.15);color:var(--auto)">🎨</div>
+            <div class="node-name" style="color:var(--auto)">CSS Specialist</div>
+            <div class="node-role">Auto · Cycle 1</div>
+            <div class="node-tokens">10K tokens</div>
+          </div>
+        </div>
+
+        <!-- ── NODE: Coverage Patcher ── -->
+        <div class="node node-mini" style="left:960px;top:342px"
+          data-agent="coverage"
+          onclick="showDetail(this)">
+          <div class="node-card" style="--node-color:var(--auto);border-color:rgba(124,131,255,0.2)">
+            <div class="node-icon sm" style="background:rgba(124,131,255,0.12);color:var(--auto)">🔍</div>
+            <div class="node-name" style="color:var(--auto)">CSS Coverage</div>
+            <div class="node-role">Auto · Every cycle</div>
+            <div class="node-tokens">4K tokens</div>
+          </div>
+        </div>
+
+        <!-- ── NODE: Ensure Files ── -->
+        <div class="node node-mini" style="left:960px;top:455px"
+          data-agent="ensurer"
+          onclick="showDetail(this)">
+          <div class="node-card" style="--node-color:var(--auto);border-color:rgba(124,131,255,0.2)">
+            <div class="node-icon sm" style="background:rgba(124,131,255,0.12);color:var(--auto)">📋</div>
+            <div class="node-name" style="color:var(--auto)">File Ensurer</div>
+            <div class="node-role">Auto · Every cycle</div>
+            <div class="node-tokens">6K tokens</div>
+          </div>
+        </div>
+
+        <!-- ── NODE: QA ── -->
+        <div class="node" style="left:960px;top:510px"
+          data-agent="qa"
+          onclick="showDetail(this)">
+          <div class="node-card" style="--node-color:var(--qa);border-color:rgba(128,203,196,0.25)">
+            <div class="pulse-ring" style="border-color:var(--qa)"></div>
+            <div class="node-icon" style="background:rgba(128,203,196,0.15);color:var(--qa)">🧪</div>
+            <div class="node-name" style="color:var(--qa)">QA Engineer</div>
+            <div class="node-role">Quality Assurance</div>
+            <div class="node-tokens">400 tokens</div>
+          </div>
+        </div>
+
+        <!-- ── FLOW LABELS ── -->
+        <span class="flow-label" style="left:258px;top:248px">feature-priority.md</span>
+        <span class="flow-label" style="left:370px;top:160px">technical-spec.md</span>
+        <span class="flow-label" style="left:352px;top:380px">design-spec.md</span>
+        <span class="flow-label" style="left:575px;top:232px">LE spec</span>
+        <span class="flow-label" style="left:560px;top:378px">design spec</span>
+        <span class="flow-label" style="left:798px;top:244px">HTML (reads)</span>
+        <span class="flow-label" style="left:1050px;top:560px">QA report → LE</span>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="legend" style="margin-top:24px;margin-left:0">
+      <div class="legend-item">
+        <div class="legend-line dashed" style="border-color:var(--ceo);width:28px;border-top-width:2px"></div>
+        Main pipeline flow
+      </div>
+      <div class="legend-item">
+        <div class="legend-line dashed" style="border-color:var(--auto);width:28px;border-top-width:2px;border-dash:3px 6px"></div>
+        Auto-system (no LLM wait)
+      </div>
+      <div class="legend-item">
+        <div class="legend-line dashed" style="border-color:#7c83ff;width:28px;border-top-width:2px"></div>
+        Cycle loop
+      </div>
+      <div class="legend-item">
+        <span style="font-size:14px">●</span> Animated dots = live data flow
+      </div>
+    </div>
+  </section>
+
+  <!-- ── TOOLS ── -->
+  <section class="section">
+    <div class="section-title">Integrated Tools</div>
+    <div class="tools-grid">
+      <div class="tool-card fade-in">
+        <div class="tool-card-header">
+          <div class="tool-icon" style="background:rgba(79,195,247,0.12);color:var(--le)">✅</div>
+          <div>
+            <div class="tool-name">JS Syntax Validator</div>
+            <div class="tool-sub">tools/validator.js · vm.Script</div>
+          </div>
+        </div>
+        <div class="tool-desc">Validates every JavaScript file with Node's <code>vm.Script</code> before writing to disk. On failure, makes a focused LLM fix-call with the broken code + error message. Retries with the fixed code and skips if still invalid.</div>
+      </div>
+      <div class="tool-card fade-in">
+        <div class="tool-card-header">
+          <div class="tool-icon" style="background:rgba(0,230,118,0.12);color:var(--ceo)">🔗</div>
+          <div>
+            <div class="tool-name">CDN Resolver</div>
+            <div class="tool-sub">tools/cdnResolver.js · cdnjs API</div>
+          </div>
+        </div>
+        <div class="tool-desc">Scans every HTML file for <code>&lt;script src&gt;</code> and <code>&lt;link href&gt;</code> tags. Replaces guessed or outdated library URLs with verified cdnjs.cloudflare.com URLs. Prevents 404 blank screens from bad CDN guesses.</div>
+      </div>
+      <div class="tool-card fade-in">
+        <div class="tool-card-header">
+          <div class="tool-icon" style="background:rgba(255,183,77,0.12);color:var(--builder)">🔍</div>
+          <div>
+            <div class="tool-name">Web Search</div>
+            <div class="tool-sub">tools/search.js · Serper API</div>
+          </div>
+        </div>
+        <div class="tool-desc">CEO and Lead Engineer optionally search the web before making decisions. Gives agents access to current market data, documentation, and best practices — beyond their training cutoff.</div>
+      </div>
+      <div class="tool-card fade-in">
+        <div class="tool-card-header">
+          <div class="tool-icon" style="background:rgba(206,147,216,0.12);color:var(--designer)">⚡</div>
+          <div>
+            <div class="tool-name">sucrase Transpiler</div>
+            <div class="tool-sub">npm sucrase · TypeScript → JS</div>
+          </div>
+        </div>
+        <div class="tool-desc">Real TypeScript-to-JavaScript transpiler. Applied to every <code>.js</code> file and inline <code>&lt;script&gt;</code> blocks before writing. Eliminates type annotations, interfaces, generics, and access modifiers that would crash the browser.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── AUTO SYSTEMS ── -->
+  <section class="section" style="padding-top:0">
+    <div class="section-title">Auto-Systems (no human trigger)</div>
+    <div class="tools-grid">
+      <div class="tool-card fade-in" style="border-color:rgba(124,131,255,0.2)">
+        <div class="tool-card-header">
+          <div class="tool-icon" style="background:rgba(124,131,255,0.12);color:var(--auto)">🎨</div>
+          <div>
+            <div class="tool-name">CSS Specialist</div>
+            <div class="tool-sub">Runs after cycle 1 builder · 10K tokens</div>
+          </div>
+        </div>
+        <div class="tool-desc">A dedicated LLM call (smart model) that reads the actual HTML on disk, extracts every <code>id=""</code> and <code>class=""</code>, then writes a COMPLETE stylesheet targeting exactly those selectors. Replaces whatever CSS the builder wrote. Guarantees dark theme, responsive layout, hover states, animations.</div>
+      </div>
+      <div class="tool-card fade-in" style="border-color:rgba(124,131,255,0.2)">
+        <div class="tool-card-header">
+          <div class="tool-icon" style="background:rgba(124,131,255,0.12);color:var(--auto)">🔍</div>
+          <div>
+            <div class="tool-name">CSS Coverage Patcher</div>
+            <div class="tool-sub">Runs every cycle · triggers at &lt;60% coverage</div>
+          </div>
+        </div>
+        <div class="tool-desc">After every cycle, counts how many HTML selectors have matching CSS rules. If coverage drops below 60%, makes a patch call listing only the uncovered selectors. Appends the missing rules to <code>style.css</code>. Prevents selector drift across multi-cycle builds.</div>
+      </div>
+      <div class="tool-card fade-in" style="border-color:rgba(124,131,255,0.2)">
+        <div class="tool-card-header">
+          <div class="tool-icon" style="background:rgba(124,131,255,0.12);color:var(--auto)">📋</div>
+          <div>
+            <div class="tool-name">File Ensurer</div>
+            <div class="tool-sub">Runs every cycle · guaranteed files</div>
+          </div>
+        </div>
+        <div class="tool-desc">After every builder run, checks that <code>index.html</code>, <code>style.css</code>, and <code>app.js</code> exist. If any are missing, auto-generates them using the smart model with full context of everything already built. No cycle can end with missing core files.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── TYPESCRIPT DEFENSE ── -->
+  <section class="section" style="padding-top:0">
+    <div class="section-title">TypeScript Defense Stack</div>
+    <div class="defense-stack">
+      <div class="defense-layer fade-in">
+        <div class="defense-num" style="background:rgba(255,183,77,0.15);color:var(--builder)">1</div>
+        <div class="defense-layer-name">Prompt Warnings</div>
+        <div class="defense-layer-desc">Every agent prompt explicitly bans TypeScript syntax: no <code>x: string</code>, no <code>interface</code>, no generics, no access modifiers</div>
+        <span class="defense-status">Active</span>
+      </div>
+      <div class="defense-layer fade-in">
+        <div class="defense-num" style="background:rgba(206,147,216,0.15);color:var(--designer)">2</div>
+        <div class="defense-layer-name">sucrase Transpiler</div>
+        <div class="defense-layer-desc">Real TS→JS transpiler runs on every <code>.js</code> file and inline <code>&lt;script&gt;</code> block — handles interfaces, generics, return types, class fields</div>
+        <span class="defense-status">Active</span>
+      </div>
+      <div class="defense-layer fade-in">
+        <div class="defense-num" style="background:rgba(79,195,247,0.15);color:var(--le)">3</div>
+        <div class="defense-layer-name">Regex Fallback</div>
+        <div class="defense-layer-desc">If sucrase throws, comprehensive regex stripper removes type annotations, removes <code>'use strict'</code>, strips access modifiers</div>
+        <span class="defense-status">Fallback</span>
+      </div>
+      <div class="defense-layer fade-in">
+        <div class="defense-num" style="background:rgba(128,203,196,0.15);color:var(--qa)">4</div>
+        <div class="defense-layer-name">retryBuilderFile</div>
+        <div class="defense-layer-desc">If <code>vm.Script</code> still throws after stripping, a focused LLM call with the error message rewrites the broken file completely</div>
+        <span class="defense-status">Last Resort</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── OUTPUT FILES ── -->
+  <section class="section" style="padding-top:0">
+    <div class="section-title">Files Produced Each Cycle</div>
+    <div class="files-grid">
+      <div class="file-chip fade-in">
+        <div class="file-chip-icon">📄</div>
+        <div class="file-chip-info">
+          <div class="file-chip-name" style="color:#ef9a9a">public/index.html</div>
+          <div class="file-chip-desc">Full page · CDN-resolved · IDs/classes</div>
+        </div>
+      </div>
+      <div class="file-chip fade-in">
+        <div class="file-chip-icon">🎨</div>
+        <div class="file-chip-info">
+          <div class="file-chip-name" style="color:#80cbc4">public/style.css</div>
+          <div class="file-chip-desc">Complete stylesheet · CSS Specialist</div>
+        </div>
+      </div>
+      <div class="file-chip fade-in">
+        <div class="file-chip-icon">⚙️</div>
+        <div class="file-chip-info">
+          <div class="file-chip-name" style="color:#ffb74d">public/data.js</div>
+          <div class="file-chip-desc">State + simulation · no DOM code</div>
+        </div>
+      </div>
+      <div class="file-chip fade-in">
+        <div class="file-chip-icon">💡</div>
+        <div class="file-chip-info">
+          <div class="file-chip-name" style="color:#ffb74d">public/app.js</div>
+          <div class="file-chip-desc">DOM + events · reads data.js globals</div>
+        </div>
+      </div>
+      <div class="file-chip fade-in">
+        <div class="file-chip-icon">📋</div>
+        <div class="file-chip-info">
+          <div class="file-chip-name" style="color:#a5d6a7">docs/feature-priority.md</div>
+          <div class="file-chip-desc">CEO decision · FIX / NEW PAGE / SECTION</div>
+        </div>
+      </div>
+      <div class="file-chip fade-in">
+        <div class="file-chip-icon">🔧</div>
+        <div class="file-chip-info">
+          <div class="file-chip-name" style="color:#4fc3f7">docs/technical-spec.md</div>
+          <div class="file-chip-desc">LE's implementation spec</div>
+        </div>
+      </div>
+      <div class="file-chip fade-in">
+        <div class="file-chip-icon">🎭</div>
+        <div class="file-chip-info">
+          <div class="file-chip-name" style="color:#ce93d8">docs/design-spec.md</div>
+          <div class="file-chip-desc">Designer's visual spec · colors, layout</div>
+        </div>
+      </div>
+      <div class="file-chip fade-in">
+        <div class="file-chip-icon">🗺</div>
+        <div class="file-chip-info">
+          <div class="file-chip-name" style="color:#7c83ff">docs/product-roadmap.md</div>
+          <div class="file-chip-desc">CEO roadmap · 6-8 features, tracked</div>
+        </div>
+      </div>
+      <div class="file-chip fade-in">
+        <div class="file-chip-icon">🧪</div>
+        <div class="file-chip-info">
+          <div class="file-chip-name" style="color:#80cbc4">docs/qa-cycle{N}.md</div>
+          <div class="file-chip-desc">QA report per cycle · fed back to LE</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── FOOTER ── -->
+  <footer class="footer">
+    <p>⚔ War Room · Multi-Agent AI Pipeline · Node.js + Express + SSE + Anthropic Claude</p>
+    <div style="display:flex;gap:16px">
+      <span class="badge">6 agents</span>
+      <span class="badge">4 files / cycle</span>
+      <span class="badge">Continuous build loop</span>
+    </div>
+  </footer>
+
+</div>
+
+<!-- ── DETAIL PANEL ── -->
+<div class="detail-panel" id="detailPanel">
+  <button class="close-btn" onclick="hideDetail()">✕</button>
+  <div id="detailContent"></div>
+</div>
+
+<script>
+const AGENT_DATA = {
+  vision: {
+    name: 'Browser Screenshot',
+    color: '#aaa',
+    role: 'Vision Input',
+    reads: ['Browser preview iframe'],
+    writes: ['Vision report → CEO'],
+    desc: 'Every cycle, the browser captures a screenshot of the current preview. CEO receives it as a base64 image, paired with a structured vision analysis from the smart model. Includes health score (1-10), broken element detection, and regression flags.',
+    tokens: 'N/A',
+    tags: ['Vision AI', 'Smart Model', '700 tokens analysis']
+  },
+  ceo: {
+    name: 'CEO',
+    color: '#00e676',
+    role: 'Chief Executive Officer',
+    reads: ['Browser screenshot', 'Vision analysis report', 'feature-priority.md (past cycles)', 'product-roadmap.md', 'qa-cycle{N}.md', 'JS function inventory', 'Sales feedback'],
+    writes: ['docs/feature-priority.md — one decision line: FIX: / NEW PAGE: / SECTION:', 'docs/product-roadmap.md (cycle 1 only)'],
+    desc: 'The strategic brain. Sees a live screenshot of the app every cycle, gets a structured vision health report, and decides what to do next. On cycle 1, generates a 6-8 item product roadmap. Uses fixLimitNote to prevent consecutive FIX cycles on healthy sites.',
+    tokens: '800 tokens',
+    tags: ['Smart Model', 'Vision Analysis', 'Roadmap Tracking', 'fixLimitNote Guard']
+  },
+  'lead-eng': {
+    name: 'Lead Engineer',
+    color: '#4fc3f7',
+    role: 'Technical Lead',
+    reads: ['CEO decision (feature-priority.md)', 'qa-cycle{N}.md', 'Current HTML/JS stats', 'JS function inventory', 'Web search results'],
+    writes: ['docs/technical-spec.md — detailed implementation plan with element IDs, state shape, JS functions'],
+    desc: 'Translates CEO decisions into concrete engineering specs. Lists every HTML element ID and class needed, defines the JS state object shape, specifies which functions go in data.js vs app.js. In FIX mode, pinpoints the broken function by name.',
+    tokens: '2000 tokens',
+    tags: ['Smart Model', 'Tech Spec', 'Web Search', 'FIX Diagnosis']
+  },
+  designer: {
+    name: 'UI Designer',
+    color: '#ce93d8',
+    role: 'Visual Designer',
+    reads: ['CEO decision', 'Technical spec', 'Category (tech-startup / game / etc)'],
+    writes: ['docs/design-spec.md — colors, typography, layout, component appearance'],
+    desc: 'Creates the visual design spec: color palette with exact hex values, typography scale, component appearance, spacing system, and animation notes. Uses category-aware templates (tech-startup vs game-studio vs e-commerce). The CSS Specialist reads this spec.',
+    tokens: '800 tokens',
+    tags: ['Fast Model', 'Category Templates', 'Design System']
+  },
+  builder: {
+    name: 'Developer',
+    color: '#ffb74d',
+    role: 'Full-Stack Builder',
+    reads: ['Technical spec', 'Design spec', 'Current index.html (element IDs for FIX mode)', 'Current app.js + data.js (FIX mode)', 'CDN hint library'],
+    writes: ['public/index.html', 'public/style.css', 'public/data.js', 'public/app.js', 'Additional pages (.html)'],
+    desc: 'The main code writer. Cycle 1: writes all 4 files from scratch. Regular cycles: appends new features. FIX cycles: rewrites the broken file completely. Gets up to 28K tokens via 2 continuations. After writing, sucrase strips any TypeScript, vm.Script validates JS syntax.',
+    tokens: '16K + 2×6K continuation = 28K max',
+    tags: ['Smart Model', 'Continuation', 'TS Stripping', 'Syntax Validation', 'CDN Resolution', 'Bloat Guard']
+  },
+  'css-specialist': {
+    name: 'CSS Specialist',
+    color: '#7c83ff',
+    role: 'Auto-System · Post-Builder',
+    reads: ['Actual index.html on disk (all id= and class= attributes)', 'docs/design-spec.md'],
+    writes: ['public/style.css — COMPLETE replacement targeting exact HTML selectors'],
+    desc: 'Runs automatically after cycle 1 builder. Extracts every real ID and class from the HTML that was just written to disk, then generates a complete, pixel-perfect stylesheet in a dedicated 10K token call. Completely replaces whatever CSS the builder produced. Guarantees 100% selector coverage.',
+    tokens: '10K tokens',
+    tags: ['Smart Model', 'Cycle 1', 'Full Replacement', 'Selector Extraction']
+  },
+  coverage: {
+    name: 'CSS Coverage Patcher',
+    color: '#7c83ff',
+    role: 'Auto-System · Every Cycle',
+    reads: ['public/index.html (all selectors)', 'public/style.css (existing rules)'],
+    writes: ['Appends missing CSS rules to public/style.css'],
+    desc: 'After every cycle, counts what percentage of HTML selectors have matching CSS rules. If coverage drops below 60%, makes a targeted patch call listing only the uncovered selectors. Prevents CSS drift when new HTML sections are added without matching styles.',
+    tokens: '4K tokens',
+    tags: ['Smart Model', 'Coverage Check', '<60% threshold', 'Append Mode']
+  },
+  ensurer: {
+    name: 'File Ensurer',
+    color: '#7c83ff',
+    role: 'Auto-System · Every Cycle',
+    reads: ['live.files (what was written)', 'All files already built'],
+    writes: ['Generates any missing: index.html, style.css, app.js'],
+    desc: 'Runs after every builder call. Checks that the three required files exist. If any are missing (builder got cut off, wrote wrong format, etc.), generates them using the smart model with full context of everything already built. No cycle can end with missing core files.',
+    tokens: '6K tokens per missing file',
+    tags: ['Smart Model', 'Safety Net', 'Every Cycle']
+  },
+  qa: {
+    name: 'QA Engineer',
+    color: '#80cbc4',
+    role: 'Quality Assurance',
+    reads: ['All public/ files', 'Console errors from browser', 'Previous QA reports'],
+    writes: ['docs/qa-cycle{N}.md — bugs, broken features, what works, what to fix next'],
+    desc: 'Reviews everything built so far and writes a structured QA report. Identifies broken functions by name, missing features, UI issues. The report is injected into the Lead Engineer\'s next cycle prompt so the LE can write targeted fix specs.',
+    tokens: '400 tokens',
+    tags: ['Fast Model', 'Bug Report', 'Feeds back to LE']
+  },
+  sales: {
+    name: 'Sales Lead',
+    color: '#f06292',
+    role: 'Customer Voice',
+    reads: ['Customer feedback (user messages)', 'Current product state'],
+    writes: ['Communicates to CEO — frames customer needs as business priorities'],
+    desc: 'When a user sends feedback during a running session, the Sales Lead processes it and communicates it directly to the CEO. The CEO then prioritizes accordingly. If feedback arrives mid-cycle, the builder acts immediately without waiting for the full planning pipeline.',
+    tokens: '600 tokens',
+    tags: ['Fast Model', 'Customer Feedback', 'Fast Path']
+  }
+};
+
+function showDetail(node) {
+  const agentId = node.dataset.agent;
+  const data = AGENT_DATA[agentId];
+  if (!data) return;
+
+  const panel = document.getElementById('detailPanel');
+  const content = document.getElementById('detailContent');
+
+  const reads = data.reads.map(r => `<span class="detail-chip">📥 ${r}</span>`).join('');
+  const writes = data.writes.map(w => `<span class="detail-chip">📤 ${w}</span>`).join('');
+  const tags = data.tags.map(t => `<span class="detail-chip" style="color:${data.color}">${t}</span>`).join('');
+
+  content.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+      <div style="width:8px;height:8px;border-radius:50%;background:${data.color};box-shadow:0 0 8px ${data.color};flex-shrink:0"></div>
+      <h3 style="color:${data.color}">${data.name}</h3>
+    </div>
+    <div class="role">${data.role} · ${data.tokens || ''}</div>
+
+    <div class="detail-section">
+      <h4>What it does</h4>
+      <p style="font-size:11px;color:#bbb;line-height:1.65">${data.desc}</p>
+    </div>
+
+    <div class="detail-section">
+      <h4>Reads</h4>
+      <div>${reads}</div>
+    </div>
+
+    <div class="detail-section">
+      <h4>Writes</h4>
+      <div>${writes}</div>
+    </div>
+
+    <div class="detail-section">
+      <h4>Capabilities</h4>
+      <div>${tags}</div>
+    </div>
+  `;
+
+  panel.style.borderColor = `${data.color}33`;
+  panel.classList.add('visible');
+}
+
+function hideDetail() {
+  document.getElementById('detailPanel').classList.remove('visible');
+}
+
+// Close panel on backdrop click
+document.addEventListener('click', e => {
+  const panel = document.getElementById('detailPanel');
+  if (!e.target.closest('.node') && !e.target.closest('.detail-panel')) {
+    panel.classList.remove('visible');
+  }
+});
+</script>
+
+</body>
+</html>

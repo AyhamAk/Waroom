@@ -174,14 +174,18 @@ function connectSSE() {
 
   es.addEventListener('preview-refresh', () => {
     schedulePreviewReload();
+    // Capture screenshot after preview reloads (backup — screenshot-request is primary)
+    setTimeout(capturePreviewScreenshot, 3500);
+  });
+
+  // Server requests a fresh screenshot right before CEO runs — capture immediately
+  es.addEventListener('screenshot-request', () => {
+    capturePreviewScreenshot();
   });
 
   es.addEventListener('agent-status', e => {
     const { agentId, status } = JSON.parse(e.data);
     updateDeskStatus(agentId, status);
-    if ((agentId === 'builder' || agentId === 'ceo') && status === 'thinking') {
-      capturePreviewScreenshot();
-    }
   });
 
   es.addEventListener('new-message', e => {
@@ -452,6 +456,51 @@ function reloadPreview() {
   $iframe.src = url;
   if ($status) { $status.textContent = 'LIVE'; $status.classList.add('live'); }
   if ($link)   $link.href = '/preview/';
+
+  // After iframe loads, intercept console errors and send to server
+  $iframe.onload = () => {
+    const errors = [];
+    try {
+      const iwin = $iframe.contentWindow;
+      if (!iwin) return;
+
+      // Intercept errors
+      iwin.onerror = (msg, src, line, col) => {
+        errors.push(`JS Error: ${msg} (line ${line}:${col})`);
+        sendConsoleErrors(errors);
+        return false;
+      };
+
+      // Intercept console.error and console.warn
+      const origError = iwin.console.error.bind(iwin.console);
+      const origWarn  = iwin.console.warn.bind(iwin.console);
+      iwin.console.error = (...args) => {
+        errors.push(`console.error: ${args.join(' ')}`);
+        sendConsoleErrors(errors);
+        origError(...args);
+      };
+      iwin.console.warn = (...args) => {
+        errors.push(`console.warn: ${args.join(' ')}`);
+        origWarn(...args);
+      };
+
+      // Intercept unhandled promise rejections
+      iwin.addEventListener('unhandledrejection', e => {
+        errors.push(`Unhandled Promise: ${e.reason}`);
+        sendConsoleErrors(errors);
+      });
+    } catch { /* cross-origin safety */ }
+  };
+}
+
+function sendConsoleErrors(errors) {
+  if (!errors.length) return;
+  const unique = [...new Set(errors)].slice(0, 10);
+  fetch('/api/console-errors', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ errors: unique }),
+  }).catch(() => {});
 }
 
 function schedulePreviewReload() {

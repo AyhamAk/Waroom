@@ -10,6 +10,7 @@
     "@anthropic-ai/sdk": "^0.52.0",
     "@google/generative-ai": "^0.24.1",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "sucrase": "^3.35.1"
   }
 }
