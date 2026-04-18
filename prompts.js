@@ -174,7 +174,7 @@ ${cycle === 1
     `===FILE===\nRespond in this EXACT format, no other text:\nTYPE: work\nFILENAME: docs/product-roadmap.md\nTASK: Product roadmap\n---\n<roadmap content here>`
   : workFmt('docs/feature-priority.md', 'Feature decision for cycle ' + cycle)}`,
 
-    'game-studio': `You are Game Director. Game: "${brief}". Cycle ${cycle}. Stack: Phaser 3 (scenes, arcade physics, programmatic textures).
+    'game-studio': `You are Game Director. Game: "${brief}". Cycle ${cycle}. Stack: PixiJS v7 (WebGL renderer, Graphics API, GlowFilter, particle containers, app.ticker game loop).
 Built: ${sectionList}
 Done: ${donePriorities}
 Last cycle: ${lastPriority || 'nothing yet'}
@@ -182,19 +182,20 @@ QA last cycle: ${lastQA ? lastQA.slice(0, 300) : 'N/A'}
 JS size: ${jsLines} lines
 ${fixLimitNote}
 DECISION RULES (follow in strict order — stop at first match):
-1. Cycle 1 → always: SECTION: complete Phaser 3 game — BootScene (programmatic textures), GameScene (physics, input, collision, score, lives), GameOverScene (restart)
-2. If VISUAL ANALYSIS says BROKEN or health score ≤ 4 → FIX: <be specific — Phaser config wrong, scene not starting, physics not set up, black screen because textures not generated, etc.>
+1. Cycle 1 → always: SECTION: complete PixiJS game — PIXI.Application setup, layered containers, player + enemies as Graphics objects with GlowFilter, particle explosions, HUD text, game loop via app.ticker, game over screen
+2. If VISUAL ANALYSIS says BROKEN or health score ≤ 4 → FIX: <be specific — app.view not appended, GlowFilter not found, collision not detecting, black screen, ticker not running, etc.>
 3. NEVER output anything identical or nearly identical to "Last cycle" above.
-4. If QA flagged game-breaking bugs AND last cycle was NOT already a FIX for the same issue → FIX: <specific Phaser fix>
-5. If JS < 150 lines → FIX: implement all 3 Phaser scenes with physics, input, collision detection, HUD, and game over flow
+4. If QA flagged game-breaking bugs AND last cycle was NOT already a FIX for the same issue → FIX: <specific PixiJS fix>
+5. If JS < 150 lines → FIX: implement complete PixiJS game with all layers, entities, collision, HUD, and game over
 6. If VISION shows health score ≥ 8 AND game is fully playable AND QA has no BROKEN → output: DONE: <one sentence reason>. Only use DONE when game is genuinely complete.
 7. Otherwise → add ONE new mechanic (output as SECTION):
-   - Power-ups (speed boost, shield, multi-shot)
-   - New enemy type with different AI (homing, zigzag, splitting)
-   - Level/wave progression with difficulty scaling
+   - Power-ups (speed boost, shield bubble with alpha ring, multi-shot spread)
+   - New enemy type with different AI (homing, zigzag, splitter that splits on death)
+   - Boss fight with health bar (PIXI.Graphics rectangle depleting)
+   - Combo multiplier with screen flash on consecutive kills
    - Leaderboard / high score persistence (localStorage)
-   - Sound effects (Phaser sound manager + Howler.js)
-   - Boss fight with health bar
+   - Sound effects (Howler.js)
+   - Screen shake on player hit (app.stage.x/y jitter)
 
 Output exactly ONE line: FIX: ... OR SECTION: ... OR DONE: ...
 ${workFmt('docs/feature-priority.md', 'Game feature for cycle ' + cycle)}`,
@@ -295,21 +296,25 @@ ${isFix
 Be precise. Builder implements exactly this spec.`}
 ${workFmt('docs/technical-spec.md', (isFix ? 'Fix spec' : 'Tech spec') + ' cycle ' + cycle)}`,
 
-    'game-studio': `You are Game Systems Engineer. Cycle ${cycle}.
+    'game-studio': `You are Game Systems Engineer. Cycle ${cycle}. Stack: PixiJS v7.
 Task: ${featurePriority || 'Build the game from scratch.'}
 Pages: ${existingHtmlPages.join(', ') || 'none'} | Size: ${htmlLines}L HTML, ${cssLines}L CSS, ${jsLines}L JS
 ${isFix ? `Current app.js (first 1200 chars):\n${jsSnapshot.slice(0, 1200)}` : ''}
 
 ${isFix
-  ? `Write a FIX spec (200+ words): name the broken functions, show incorrect logic, write correct game loop structure (requestAnimationFrame → update() → draw()), correct input handling (keydown/keyup state map), correct collision algorithm, correct state machine transitions (START/PLAYING/GAMEOVER). Be specific.`
-  : `Write a DETAILED game architecture spec (300+ words). Cover ALL of:
-1. STATE OBJECT: exact shape — { player: {x,y,vx,vy,health,lives}, enemies: [], bullets: [], score, wave, gameState, keys: {} }
-2. ALL FUNCTIONS with signatures: update(dt), draw(ctx), spawnEnemy(wave), checkCollision(a,b), handleInput()
-3. GAME LOOP: requestAnimationFrame pattern, delta time calculation
-4. INPUT: keydown/keyup event map (ArrowLeft/Right/Up/Down/Space/W/A/S/D)
-5. COLLISION: algorithm type (AABB rect vs rect, or circle), which objects check against which
-6. SPAWNING: enemy spawn rate formula per wave, enemy types and their behavior
-7. CANVAS IDs and dimensions`}
+  ? `Write a FIX spec (200+ words): name the broken PixiJS functions, show incorrect logic, write correct fix. Common issues: app.view not appended to DOM, GlowFilter constructor wrong (use new PIXI.filters.GlowFilter({...})), collision radius too small, ticker not started, removeChild called on wrong container. Be specific about the PixiJS API calls that need to change.`
+  : `Write a DETAILED PixiJS game architecture spec (300+ words). Cover ALL of:
+1. PIXI.Application config: { width, height, backgroundColor (hex number 0x...), antialias: true, resolution }
+2. LAYER STACK: list every PIXI.Container (bgLayer, enemyLayer, bulletLayer, playerLayer, fxLayer, hudLayer) added to app.stage in order
+3. STATE OBJECT: exact shape — { score, lives, wave, phase: 'playing'|'gameover', player, enemies:[], bullets:[], particles:[], keys:{}, lastFired, spawnTimer }
+4. ENTITIES as PIXI.Graphics: player (shape polygon/rect, fill color 0x hex, glow color), enemy types (shape, fill color, speed range, behavior), bullets (shape, color, speed)
+5. GLOW FILTERS: new PIXI.filters.GlowFilter({ distance, outerStrength, color }) — specify per entity
+6. PARTICLES: explosion color, particle count, speed range, alpha fade duration
+7. COLLISION: distance-based sqrt(dx²+dy²) < radius — specify collision radius per pair
+8. HUD: PIXI.Text objects for score/lives/wave — textStyle (fill, fontSize, fontFamily:'monospace')
+9. GAME LOOP: app.ticker.add(delta => ...) — delta in frames (divide by 60 for seconds)
+10. INPUT: keydown/keyup setting state.keys[e.code] — ArrowLeft/Right/Up/Down/Space/KeyA/W/S/D
+11. SPAWN formula: delay = max(300, baseDelay - wave * 80), using accumulated delta counter`}
 ${workFmt('docs/technical-spec.md', (isFix ? 'Fix spec' : 'Game spec') + ' cycle ' + cycle)}`,
 
     'film-production': `You are Screenwriter. Cycle ${cycle}.
@@ -408,21 +413,21 @@ ${workFmt('docs/design-spec.md', 'Design spec cycle ' + cycle)}`,
 
   /* ── QA prompts per category ── */
   const QA_PROMPTS = {
-    'game-studio': `Phaser 3 QA Engineer. Cycle ${cycle}.
+    'game-studio': `PixiJS QA Engineer. Cycle ${cycle}.
 Feature built: ${featurePriority || 'core game'} | JS size: ${jsLines} lines
 App.js sample: ${jsSnapshot.slice(0, 500)}
 
-Review the Phaser 3 code critically. Check:
-1. Does new Phaser.Game(config) exist with parent: 'game-container' and scene array?
-2. Do all scene classes extend Phaser.Scene with correct constructor super({ key: '...' })?
-3. Does BootScene.preload() generate textures programmatically (generateTexture)?
-4. Does GameScene.create() set up physics sprites, overlap/collider, keyboard input, and HUD text?
-5. Does GameScene.update() run player movement, shooting, and win/lose checks?
-6. Does GameOverScene show score and have a restart button?
+Review the PixiJS code critically. Check:
+1. Does new PIXI.Application({...}) exist and is app.view appended to document.getElementById('game-container')?
+2. Are layered PIXI.Container objects created and added to app.stage in correct draw order?
+3. Are entities created as PIXI.Graphics with beginFill/endFill and added to the correct layer container?
+4. Do entities have GlowFilter applied (new PIXI.filters.GlowFilter({...}) or PIXI.filters.GlowFilter)?
+5. Does app.ticker.add(delta => ...) run the game loop with player movement, collision, and spawning?
+6. Is there a game over screen with score display and a restart handler (interactive PIXI.Text or Graphics button)?
 
 If ANY of these are missing or broken, flag it with: BROKEN: <description>
 Write max 6 lines. Start each issue with BROKEN: or OK:.
-${workFmt('docs/qa-cycle' + cycle + '.md', 'Phaser QA cycle ' + cycle)}`,
+${workFmt('docs/qa-cycle' + cycle + '.md', 'PixiJS QA cycle ' + cycle)}`,
 
     'film-production': `Film Editor review. Cycle ${cycle}.
 Feature: ${featurePriority || 'film page'} | Spec: ${techSpec ? techSpec.slice(0, 150) : ''}
@@ -451,7 +456,7 @@ ${workFmt('docs/qa-cycle' + cycle + '.md', 'QA cycle ' + cycle)}`,
 
   /* ── Builder context per category ── */
   const BUILDER_CONTEXT = {
-    'game-studio':     { role: 'Senior Phaser 3 Game Developer',     style: 'Phaser 3 HTML5 game with scenes, physics, and input',palette: 'dark bg (#0a0a0f), neon accent, pixel/sharp aesthetic',          framework: 'vanilla' },
+    'game-studio':     { role: 'Senior PixiJS Game Developer',        style: 'PixiJS WebGL game with neon glow, particle effects, and smooth 60fps gameplay', palette: 'dark bg (#0a0a0f), neon accent, bloom glow effects', framework: 'vanilla' },
     'film-production': { role: 'Frontend Developer for film',       style: 'cinematic Vue 3 site',                               palette: 'dark (#0d0d0d), film-grain aesthetic, bold typography',           framework: 'vue' },
     'ad-agency':       { role: 'Frontend Developer for advertising', style: 'Vue 3 campaign page',                               palette: 'brand-focused, clean, high contrast, bold CTAs',                 framework: 'vue' },
     'newsroom':        { role: 'Frontend Developer for digital news', style: 'Vue 3 editorial site',                             palette: 'clean white/off-white, strong typography, journalistic layout',  framework: 'vue' },
@@ -634,7 +639,97 @@ TASK: complete CSS — targets every ID and class in index.html
 No text before first TYPE: or after last block.`;
         }
 
-        // ── Vue / game-studio Phase 1: existing path ──
+        // ── Game-studio Phase 1: plan-first approach (PixiJS) ──
+        if (category === 'game-studio') {
+          return `${ctx.role}. CYCLE 1 PHASE 1 — Design the game architecture, then build the HTML shell + CSS.
+
+PROJECT: ${brief}
+DESIGN: ${(designSpec || ctx.palette).slice(0, 600)}${memoryCtx}
+
+WRITE 3 FILES IN THIS EXACT ORDER:
+
+① docs/build-plan.md — YOUR BINDING CONTRACT (Phase 2 implements this exactly)
+   Include:
+   APP:          PIXI.Application config — width, height, backgroundColor (0x hex number), antialias
+   LAYERS:       every PIXI.Container name in draw order (e.g. bgLayer, enemyLayer, bulletLayer, playerLayer, fxLayer, hudLayer)
+   STATE:        the complete const state = {} object (score, lives, wave, phase, player, enemies[], bullets[], particles[], keys{}, lastFired, spawnTimer)
+   ENTITIES:     player (Graphics shape: polygon/rect/circle, fill 0x hex, glow 0x hex, speed px/s, fire rate ms)
+                 enemy types (name, shape, fill color, base speed, behavior: straight/zigzag/homing)
+                 bullets (shape, fill color, speed px/s)
+   FILTERS:      GlowFilter per entity — { distance, outerStrength, color: 0x hex }
+   PARTICLES:    explosion color 0x, count, speed range, alpha fade duration seconds
+   COLLISIONS:   distance radius per pair (bullets↔enemies: Npx, player↔enemies: Npx)
+   HUD:          PIXI.Text labels — text, fill color, fontSize, position
+   DIFFICULTY:   spawn accumulator formula (e.g. spawnDelay = Math.max(300, 1400 - wave*80))
+   EXTRAS:       unique mechanics for this brief
+
+② public/index.html — Minimal PixiJS shell (PixiJS creates its own canvas via app.view)
+   <div id="game-container"> — PixiJS appends canvas here. NO <canvas> tag.
+   <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js"></script>
+   <script src="https://cdn.jsdelivr.net/npm/pixi-filters@5.3.1/dist/browser/pixi-filters.js"></script>
+   <script src="app.js"></script> before </body>
+
+③ public/style.css — Minimal game shell styles
+   body { margin:0; overflow:hidden; background:#0a0a0f; display:flex; align-items:center; justify-content:center; height:100vh }
+   #game-container { position:relative; line-height:0 }
+   (PixiJS handles all in-game UI — CSS only needed for the page shell)
+\x00CACHE_SPLIT\x00
+${getCDNHint()}
+
+TYPE: work
+FILENAME: docs/build-plan.md
+TASK: PixiJS game design contract — the binding spec Phase 2 implements exactly
+---
+APP:
+  new PIXI.Application({ width: [N], height: [N], backgroundColor: 0x[hex], antialias: true, resolution: window.devicePixelRatio||1, autoDensity: true })
+  document.getElementById('game-container').appendChild(app.view)
+LAYERS (added to app.stage in this order):
+  [e.g. bgLayer, enemyLayer, bulletLayer, playerLayer, fxLayer, hudLayer — each a new PIXI.Container()]
+STATE:
+  const state = {
+    score: 0, lives: 3, wave: 1, phase: 'playing',
+    player: null, enemies: [], bullets: [], particles: [],
+    keys: {}, lastFired: 0, spawnTimer: 0,
+    [any extra fields for this brief]
+  }
+ENTITIES:
+  Player: [Graphics shape + dims, fill: 0x[hex], glow: new PIXI.filters.GlowFilter({ distance:[N], outerStrength:[N], color: 0x[hex] }), speed: [N]px/s, fireRate: [N]ms]
+  Enemy "[name]": [shape, fill: 0x[hex], glow color, baseSpeed: [N], behavior: [straight down / zigzag / homing]]
+  [add more enemy types as needed]
+  Bullet: [shape, fill: 0x[hex], glow color, speed: [N]px/s upward]
+PARTICLES (explode function):
+  color: 0x[hex], count: [N], speedRange: [min]-[max]px/s, lifeDuration: [N]s, alpha fade to 0
+COLLISIONS:
+  bullets ↔ enemies: radius [N]px — destroys both, adds score, calls explode()
+  player ↔ enemies:  radius [N]px — destroys enemy, decrements lives, triggers screen effects
+HUD (PIXI.Text added to hudLayer):
+  scoreText: 'Score: 0' — fill [hex], fontSize [N], fontFamily 'monospace', position (10, 10)
+  livesText: 'Lives: 3' — fill [hex], position (10, 34)
+  waveText:  'Wave: 1'  — fill [hex], position (10, 58)
+DIFFICULTY:
+  spawnDelay = Math.max([min]ms, [base]ms - state.wave * [step])
+  enemy speed += state.wave * [N] per wave
+EXTRAS:
+  [unique mechanics specific to this brief — power-ups, boss, screen shake, combo, etc.]
+
+===FILE===
+TYPE: work
+FILENAME: public/index.html
+TASK: minimal PixiJS HTML shell — container div + CDN scripts
+---
+[Minimal HTML: <!DOCTYPE html> with style.css link, body containing only <div id="game-container"></div>, then PixiJS CDN script, pixi-filters CDN script, then app.js script. NO canvas tag. NO inline JS. NO other elements.]
+
+===FILE===
+TYPE: work
+FILENAME: public/style.css
+TASK: minimal game shell styles — body centering only
+---
+[CSS: body{margin:0;overflow:hidden;background:#0a0a0f;display:flex;align-items:center;justify-content:center;height:100vh} #game-container{position:relative;line-height:0} canvas{display:block}]
+
+No text before first TYPE: or after last block.`;
+        }
+
+        // ── Vue Phase 1: existing path ──
         return `${ctx.role}. PHASE 1 of 2 — Build the visual shell for: ${ctx.style}
 
 ${selfPlan}
@@ -647,9 +742,7 @@ ${htmlStructureHint}
 \x00CACHE_SPLIT\x00
 ${getCDNHint()}${getSmartLibraryHints()}
 ⚠️ Write style.css FIRST so the page renders styled immediately.
-${isVue
-  ? `⚠️ Vue template syntax ONLY in HTML. No vanilla JS. The <div id="app"> is the Vue root.`
-  : `⚠️ Vanilla HTML5 + CSS3 ONLY. No JavaScript in this phase.\n⚠️ Use descriptive element IDs that JavaScript can target: id="btc-price", id="portfolio-table", id="chart-canvas"`}
+⚠️ Vue template syntax ONLY in HTML. No vanilla JS. The <div id="app"> is the Vue root.
 
 TYPE: work
 FILENAME: public/style.css
@@ -660,7 +753,7 @@ TASK: complete stylesheet — all CSS variables, every section styled, animation
 ===FILE===
 TYPE: work
 FILENAME: public/index.html
-TASK: complete HTML — semantic structure with all UI sections${isVue ? ' using Vue template syntax' : ' and their element IDs'}
+TASK: complete HTML — semantic structure with all UI sections using Vue template syntax
 ---
 [Write the COMPLETE HTML. Every section from the brief gets its own element. Link <link rel="stylesheet" href="style.css">. Add ${scriptTags} before </body>. No inline JS. No placeholder text — write real labels and structure.]
 
@@ -784,135 +877,257 @@ Every function from APP.JS FUNCTIONS in the plan — fully implemented, no stubs
 No text before first TYPE: or after last block.`;
       }
 
-      // Phaser 3 path (game-studio) — single app.js with scene classes
-      // Working scaffold: customize this instead of starting from scratch
-      const phaserScaffold = `class BootScene extends Phaser.Scene {
-  constructor() { super({ key: 'Boot' }); }
-  preload() {
-    // Generate ALL textures here programmatically — zero external files needed
-    const g = this.make.graphics({ x: 0, y: 0, add: false });
-    g.fillStyle(0x00e676); g.fillRect(0, 0, 32, 32); g.generateTexture('player', 32, 32);
-    g.clear(); g.fillStyle(0xff4444); g.fillTriangle(16,0, 32,32, 0,32); g.generateTexture('enemy', 32, 32);
-    g.clear(); g.fillStyle(0xffff00); g.fillCircle(4, 4, 4); g.generateTexture('bullet', 8, 8);
-    g.destroy();
-  }
-  create() { this.scene.start('Game'); }
+      // PixiJS path (game-studio) — working scaffold, customize per plan
+      const pixiScaffold = `// ── PixiJS v7 Game Scaffold ──
+const app = new PIXI.Application({
+  width: 800, height: 600, backgroundColor: 0x0a0a0f,
+  antialias: true, resolution: window.devicePixelRatio || 1, autoDensity: true,
+});
+document.getElementById('game-container').appendChild(app.view);
+
+// Layered containers — draw order: bg → enemies → bullets → player → fx → hud
+const bgLayer     = new PIXI.Container(); app.stage.addChild(bgLayer);
+const enemyLayer  = new PIXI.Container(); app.stage.addChild(enemyLayer);
+const bulletLayer = new PIXI.Container(); app.stage.addChild(bulletLayer);
+const playerLayer = new PIXI.Container(); app.stage.addChild(playerLayer);
+const fxLayer     = new PIXI.Container(); app.stage.addChild(fxLayer);
+const hudLayer    = new PIXI.Container(); app.stage.addChild(hudLayer);
+
+// Game state
+const state = {
+  score: 0, lives: 3, wave: 1, phase: 'playing',
+  player: null, enemies: [], bullets: [], particles: [],
+  keys: {}, lastFired: 0, spawnAccum: 0,
+};
+window.addEventListener('keydown', e => { state.keys[e.code] = true; e.preventDefault(); });
+window.addEventListener('keyup',   e => { state.keys[e.code] = false; });
+
+// HUD
+const hudStyle = { fill: '#00e676', fontSize: 18, fontFamily: 'monospace' };
+const scoreText = new PIXI.Text('Score: 0', hudStyle);           scoreText.set({ x:10, y:10 }); hudLayer.addChild(scoreText);
+const livesText = new PIXI.Text('Lives: 3', { ...hudStyle, fill:'#ff4444' }); livesText.set({ x:10, y:34 }); hudLayer.addChild(livesText);
+const waveText  = new PIXI.Text('Wave: 1',  { ...hudStyle, fill:'#ffff00' }); waveText.set({  x:10, y:58 }); hudLayer.addChild(waveText);
+function updateHUD() {
+  scoreText.text = 'Score: ' + state.score;
+  livesText.text = 'Lives: ' + state.lives;
+  waveText.text  = 'Wave: '  + state.wave;
 }
 
-class GameScene extends Phaser.Scene {
-  constructor() { super({ key: 'Game' }); }
-  create() {
-    this.score = 0; this.lives = 3; this.wave = 1;
-    this.player = this.physics.add.sprite(400, 540, 'player').setCollideWorldBounds(true);
-    this.enemies = this.physics.add.group();
-    this.bullets = this.physics.add.group({ runChildUpdate: true });
-    this.scoreText = this.add.text(16, 16, 'Score: 0', { fontSize: '20px', color: '#0ff' }).setScrollFactor(0);
-    this.livesText = this.add.text(16, 44, 'Lives: 3', { fontSize: '18px', color: '#f66' }).setScrollFactor(0);
-    this.waveText  = this.add.text(16, 72, 'Wave: 1',  { fontSize: '18px', color: '#ff0' }).setScrollFactor(0);
-    this.cursors = this.input.keyboard.createCursorKeys();
-    this.wasd = this.input.keyboard.addKeys({ up:'W', left:'A', down:'S', right:'D' });
-    this.fireKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-    this.physics.add.overlap(this.bullets, this.enemies, this.hitEnemy, null, this);
-    this.physics.add.overlap(this.player, this.enemies, this.playerHit, null, this);
-    this.spawnTimer = this.time.addEvent({ delay: 1200, callback: this.spawnEnemy, callbackScope: this, loop: true });
-    this.lastFired = 0;
+// Glow helper
+function makeGlow(color, distance = 10, strength = 2) {
+  return new PIXI.filters.GlowFilter({ distance, outerStrength: strength, color, quality: 0.4 });
+}
+
+// Player — neon green ship polygon
+function createPlayer() {
+  const g = new PIXI.Graphics();
+  g.beginFill(0x00e676).moveTo(0,-22).lineTo(16,16).lineTo(0,6).lineTo(-16,16).closePath().endFill();
+  g.filters = [makeGlow(0x00e676, 12, 2.5)];
+  g.x = 400; g.y = 520; g.speed = 300;
+  playerLayer.addChild(g);
+  return g;
+}
+
+// Bullet
+function fireBullet() {
+  if (performance.now() - state.lastFired < 200) return;
+  state.lastFired = performance.now();
+  const b = new PIXI.Graphics();
+  b.beginFill(0x00ffff).drawCircle(0, 0, 4).endFill();
+  b.filters = [makeGlow(0x00ffff, 6, 2)];
+  b.x = state.player.x; b.y = state.player.y - 24; b.vy = -540;
+  bulletLayer.addChild(b); state.bullets.push(b);
+}
+
+// Enemy — red triangle, straight down
+function spawnEnemy() {
+  const g = new PIXI.Graphics();
+  g.beginFill(0xff3333).drawPolygon([-14,14, 14,14, 0,-14]).endFill();
+  g.filters = [makeGlow(0xff3333, 10, 2)];
+  g.x = 40 + Math.random() * 720; g.y = -20;
+  g.vy = 70 + state.wave * 18;
+  enemyLayer.addChild(g); state.enemies.push(g);
+}
+
+// Explosion particles
+function explode(x, y, color = 0xff6600, count = 14) {
+  for (let i = 0; i < count; i++) {
+    const p = new PIXI.Graphics();
+    p.beginFill(color).drawCircle(0, 0, 2 + Math.random() * 4).endFill();
+    const angle = (Math.PI * 2 / count) * i + Math.random() * 0.4;
+    const spd   = 80 + Math.random() * 160;
+    p.x = x; p.y = y; p.vx = Math.cos(angle)*spd; p.vy = Math.sin(angle)*spd;
+    p.life = 0.5 + Math.random() * 0.4; p.alpha = 1;
+    p.filters = [makeGlow(color, 4, 1.5)];
+    fxLayer.addChild(p); state.particles.push(p);
   }
-  update(time, delta) {
-    this.player.setVelocity(0);
-    if (this.cursors.left.isDown  || this.wasd.left.isDown)  this.player.setVelocityX(-280);
-    if (this.cursors.right.isDown || this.wasd.right.isDown) this.player.setVelocityX(280);
-    if (this.cursors.up.isDown    || this.wasd.up.isDown)    this.player.setVelocityY(-280);
-    if (this.cursors.down.isDown  || this.wasd.down.isDown)  this.player.setVelocityY(280);
-    if (Phaser.Input.Keyboard.JustDown(this.fireKey) || (time - this.lastFired > 250 && this.fireKey.isDown)) {
-      this.fireBullet(); this.lastFired = time;
+}
+
+// Screen shake
+function shake(duration = 300, intensity = 4) {
+  const start = performance.now();
+  const tick = () => {
+    const t = performance.now() - start;
+    if (t > duration) { app.stage.x = 0; app.stage.y = 0; return; }
+    const fade = 1 - t / duration;
+    app.stage.x = (Math.random() - 0.5) * intensity * 2 * fade;
+    app.stage.y = (Math.random() - 0.5) * intensity * 2 * fade;
+    requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+// Game over overlay
+function showGameOver() {
+  state.phase = 'gameover';
+  const overlay = new PIXI.Graphics();
+  overlay.beginFill(0x000000, 0.78).drawRect(0, 0, 800, 600).endFill();
+  fxLayer.addChild(overlay);
+  const t1 = new PIXI.Text('GAME OVER', { fill:'#ff3333', fontSize:56, fontFamily:'monospace', fontWeight:'bold' });
+  t1.anchor.set(0.5); t1.x = 400; t1.y = 210; t1.filters = [makeGlow(0xff3333, 16, 3)]; fxLayer.addChild(t1);
+  const t2 = new PIXI.Text('Score: ' + state.score, { fill:'#ffffff', fontSize:30, fontFamily:'monospace' });
+  t2.anchor.set(0.5); t2.x = 400; t2.y = 300; fxLayer.addChild(t2);
+  const btn = new PIXI.Text('[ PLAY AGAIN ]', { fill:'#00e676', fontSize:26, fontFamily:'monospace' });
+  btn.anchor.set(0.5); btn.x = 400; btn.y = 390;
+  btn.eventMode = 'static'; btn.cursor = 'pointer';
+  btn.on('pointerover', () => { btn.style.fill = '#ffffff'; });
+  btn.on('pointerout',  () => { btn.style.fill = '#00e676'; });
+  btn.on('pointerdown', () => { fxLayer.removeChildren(); resetGame(); });
+  fxLayer.addChild(btn);
+}
+
+function resetGame() {
+  enemyLayer.removeChildren(); bulletLayer.removeChildren(); playerLayer.removeChildren();
+  Object.assign(state, { score:0, lives:3, wave:1, phase:'playing', enemies:[], bullets:[], particles:[], lastFired:0, spawnAccum:0 });
+  state.player = createPlayer();
+  updateHUD();
+}
+
+// ── GAME LOOP ──
+app.ticker.add((delta) => {
+  if (state.phase !== 'playing') return;
+  const dt = delta / 60;
+  const p = state.player;
+
+  // Player movement
+  if (state.keys['ArrowLeft']  || state.keys['KeyA']) p.x -= p.speed * dt;
+  if (state.keys['ArrowRight'] || state.keys['KeyD']) p.x += p.speed * dt;
+  if (state.keys['ArrowUp']    || state.keys['KeyW']) p.y -= p.speed * dt;
+  if (state.keys['ArrowDown']  || state.keys['KeyS']) p.y += p.speed * dt;
+  p.x = Math.max(20, Math.min(780, p.x));
+  p.y = Math.max(20, Math.min(580, p.y));
+  if (state.keys['Space']) fireBullet();
+
+  // Spawn enemies
+  state.spawnAccum += delta;
+  const spawnDelay = Math.max(300, 1400 - state.wave * 80);
+  if (state.spawnAccum >= spawnDelay) { spawnEnemy(); state.spawnAccum = 0; }
+
+  // Move bullets
+  for (let i = state.bullets.length - 1; i >= 0; i--) {
+    const b = state.bullets[i];
+    b.y += b.vy * dt;
+    if (b.y < -10) { bulletLayer.removeChild(b); state.bullets.splice(i, 1); }
+  }
+
+  // Move enemies
+  for (let i = state.enemies.length - 1; i >= 0; i--) {
+    const e = state.enemies[i];
+    e.y += e.vy * dt;
+    if (e.y > 630) { enemyLayer.removeChild(e); state.enemies.splice(i, 1); }
+  }
+
+  // Particles
+  for (let i = state.particles.length - 1; i >= 0; i--) {
+    const pt = state.particles[i];
+    pt.x += pt.vx * dt; pt.y += pt.vy * dt;
+    pt.life -= dt; pt.alpha = Math.max(0, pt.life * 2);
+    if (pt.life <= 0) { fxLayer.removeChild(pt); state.particles.splice(i, 1); }
+  }
+
+  // Collision: bullets vs enemies
+  for (let bi = state.bullets.length - 1; bi >= 0; bi--) {
+    for (let ei = state.enemies.length - 1; ei >= 0; ei--) {
+      const b = state.bullets[bi], e = state.enemies[ei];
+      if (!b || !e) continue;
+      const dx = b.x - e.x, dy = b.y - e.y;
+      if (dx*dx + dy*dy < 24*24) {
+        explode(e.x, e.y, 0xff3333);
+        bulletLayer.removeChild(b); state.bullets.splice(bi, 1);
+        enemyLayer.removeChild(e); state.enemies.splice(ei, 1);
+        state.score += 10; updateHUD();
+        break;
+      }
     }
   }
-  fireBullet() {
-    const b = this.bullets.create(this.player.x, this.player.y - 20, 'bullet');
-    b.setVelocityY(-500); b.setActive(true); b.setVisible(true);
-    b.update = () => { if (b.y < 0) b.destroy(); };
-  }
-  spawnEnemy() {
-    const x = Phaser.Math.Between(32, 768);
-    const e = this.enemies.create(x, 32, 'enemy');
-    e.setVelocityY(60 + this.wave * 15);
-    e.checkWorldBounds = true; e.outOfBoundsKill = true;
-  }
-  hitEnemy(bullet, enemy) {
-    bullet.destroy(); enemy.destroy();
-    this.score += 10; this.scoreText.setText('Score: ' + this.score);
-    this.cameras.main.flash(80, 255, 200, 0);
-    if (this.enemies.countActive() === 0) this.nextWave();
-  }
-  playerHit(player, enemy) {
-    enemy.destroy(); this.lives--;
-    this.livesText.setText('Lives: ' + this.lives);
-    this.cameras.main.shake(200, 0.015);
-    if (this.lives <= 0) this.scene.start('GameOver', { score: this.score });
-  }
-  nextWave() {
-    this.wave++;
-    this.waveText.setText('Wave: ' + this.wave);
-    this.spawnTimer.delay = Math.max(400, 1200 - this.wave * 80);
-  }
-}
 
-class GameOverScene extends Phaser.Scene {
-  constructor() { super({ key: 'GameOver' }); }
-  create(data) {
-    this.add.text(400, 220, 'GAME OVER', { fontSize: '56px', color: '#ff4444', fontStyle: 'bold' }).setOrigin(0.5);
-    this.add.text(400, 310, 'Score: ' + (data?.score || 0), { fontSize: '32px', color: '#ffffff' }).setOrigin(0.5);
-    const btn = this.add.text(400, 410, '[ PLAY AGAIN ]', { fontSize: '28px', color: '#00e676', backgroundColor: '#1a1a2e', padding: { x: 24, y: 12 } })
-      .setOrigin(0.5).setInteractive({ useHandCursor: true });
-    btn.on('pointerover', () => btn.setColor('#ffffff'));
-    btn.on('pointerout',  () => btn.setColor('#00e676'));
-    btn.on('pointerdown', () => this.scene.start('Game'));
+  // Collision: enemies vs player
+  for (let i = state.enemies.length - 1; i >= 0; i--) {
+    const e = state.enemies[i];
+    const dx = e.x - p.x, dy = e.y - p.y;
+    if (dx*dx + dy*dy < 26*26) {
+      explode(e.x, e.y, 0xff8800, 10);
+      enemyLayer.removeChild(e); state.enemies.splice(i, 1);
+      state.lives--; updateHUD(); shake();
+      if (state.lives <= 0) showGameOver();
+    }
   }
-}
 
-const config = {
-  type: Phaser.AUTO, width: 800, height: 600,
-  parent: 'game-container', backgroundColor: '#0a0a0f',
-  physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
-  scene: [BootScene, GameScene, GameOverScene]
-};
-new Phaser.Game(config);`.trim();
+  // Wave clear check
+  if (state.enemies.length === 0 && state.spawnAccum === 0) {
+    // next wave starts naturally via spawn timer
+  }
+});
 
-      return `${ctx.role}. PHASE 2 of 2 — Build the Phaser 3 game for: "${brief}"
+// Start
+state.player = createPlayer();`.trim();
 
-The HTML shell and CSS are already written. Your ONLY job: write app.js based on the working scaffold below.
+      const gamePlan = readFile('docs/build-plan.md');
+
+      return `${ctx.role}. PHASE 2 of 2 — Build the PixiJS game for: "${brief}"
+
+The HTML shell and CSS are already written. Your ONLY job: write app.js.
+
+GAME PLAN — implement this EXACTLY (entity colors, glow specs, collision radii, spawn formula, extras):
+${gamePlan
+  ? gamePlan.slice(0, 3000)
+  : 'No plan found — derive from the brief. Use the scaffold below as-is and theme it to the brief.'}
 
 ${memoryCtx}${backendNote}
-WORKING SCAFFOLD — this already runs. Customize it to match "${brief}":
-${phaserScaffold}
+WORKING SCAFFOLD — this already runs. Customize it to match the plan above:
+${pixiScaffold}
 
-YOUR JOB — modify the scaffold above to match the brief:
-1. BootScene.preload(): re-draw textures to fit the game's theme (colors, shapes, sizes)
-2. GameScene: adapt player movement, shooting/attack, enemy behavior and AI per the brief
-3. Tune spawn rate, speeds, and difficulty scaling to feel right for this genre
-4. Add extra scenes or mechanics the brief calls for (boss, power-ups, platformer physics, etc.)
-5. Keep all existing infrastructure: arcade physics, collider wiring, HUD text, GameOver flow
+YOUR JOB — customize the scaffold to match the game plan:
+1. PIXI.Application config: match width/height/backgroundColor from plan
+2. Player Graphics: re-draw to match plan shape, fill color, glow color and strength
+3. Enemy types: implement EACH type from plan — shape, color, speed, behavior (straight/zigzag/homing)
+4. Bullets: match plan color, speed, and glow
+5. Particles: match plan explosion color and count
+6. Spawn formula: use the exact formula from the plan
+7. Collision radii: use the values from the plan for each pair
+8. EXTRAS: implement every mechanic listed in plan EXTRAS (power-ups, boss, screen shake, combo, etc.)
+9. Keep all infrastructure: layered containers, HUD text, game over overlay, resetGame(), shake()
 
-WHAT MAKES A GREAT GAME:
-✅ All textures generated programmatically in BootScene.preload() — zero external files
-✅ Player movement via keyboard arrows/WASD (or touch for mobile)
-✅ Shooting / attack mechanic (space, click, or theme-appropriate input)
-✅ At least 2 enemy types with distinct movement patterns
-✅ Physics overlap/collider for all interactions (bullets↔enemies, player↔enemies)
-✅ Score + lives/health tracked and displayed as HUD text via setScrollFactor(0)
-✅ Boot → Game → GameOver scenes with restart
+WHAT MAKES A GREAT PIXI GAME:
+✅ GlowFilter on every entity (player, enemies, bullets, particles) — neon visual identity
+✅ Layered PIXI.Container draw order so particles render above enemies but below HUD
+✅ Smooth 60fps via app.ticker.add(delta => ...) with dt = delta/60 for frame-rate independence
+✅ Particle explosions on every death — color-coded per entity type
+✅ Screen shake on player hit — makes damage feel impactful
+✅ At least 2 enemy types with distinct movement AI
 ✅ Wave/difficulty progression
+✅ Game over overlay with score + interactive restart button (eventMode: 'static')
 ✅ FULLY PLAYABLE from first load — zero stubs, zero TODOs
 
-${getSmartLibraryHints()}
-⚠️ Output ONLY app.js. No data.js. No import/export. Phaser is global via CDN.
-SELF-CHECK: (1) All 3 scene classes extend Phaser.Scene. (2) preload() generates all textures. (3) create() wires all colliders and input. (4) update() runs game logic every frame. (5) GameOver has restart button. (6) new Phaser.Game(config) at bottom.
+⚠️ Output ONLY app.js. PixiJS and pixi-filters are global via CDN — use PIXI.* and PIXI.filters.* directly.
+⚠️ No import/export. No TypeScript. No external files.
+SELF-CHECK: (1) app.view appended to #game-container. (2) All layers added to app.stage. (3) GlowFilter on every entity. (4) app.ticker.add() runs the full game loop. (5) Game over has interactive restart. (6) No Phaser.* references.
 
 TYPE: work
 FILENAME: public/app.js
-TASK: complete Phaser 3 game — BootScene + GameScene + GameOverScene
+TASK: complete PixiJS game — layered containers, glow entities, particle fx, game loop, game over
 ---
-[Write the COMPLETE app.js — customize the scaffold above for "${brief}". Every feature above implemented. Fully playable from first load.]
+[Write the COMPLETE app.js — customize the scaffold above for "${brief}". Neon glow on everything. Particle explosions. Screen shake. Fully playable from first load. No stubs.]
 
 No text before TYPE: or after last block.`;
     }
@@ -1082,9 +1297,13 @@ No text before first TYPE: or after last block.`;
     }
 
     // ── Phaser 3 cycle 2+ (game-studio) — full app.js rewrite adding the new mechanic ──
+    const gamePlan2 = readFile('docs/build-plan.md');
     return `${ctx.role}. Add ONE new mechanic to existing ${ctx.style}.
 
 ${planContext}
+
+ORIGINAL GAME PLAN (for reference — don't break existing systems):
+${gamePlan2 ? gamePlan2.slice(0, 1500) : '(no plan — derive from current app.js below)'}
 
 ⚠️ PHASER 3 REWRITE RULE: Phaser game config and scenes are a single block — always TYPE: work for app.js.
 Include ALL existing scenes + new mechanic integrated. Keep all existing gameplay working.
@@ -1100,21 +1319,21 @@ For "${featurePriority}" extend the existing Phaser 3 game:
 4. New assets in BootScene.preload() — generate textures programmatically
 5. CSS/HTML changes if a new UI element is needed (HUD, panel, button)
 
-⚠️ No import/export. No TypeScript annotations. Phaser is a global via CDN.
-SELF-CHECK: (1) All existing scenes preserved. (2) BootScene generates all textures. (3) Colliders still wired. (4) new Phaser.Game(config) still at bottom.
+⚠️ No import/export. No TypeScript annotations. PixiJS and pixi-filters are globals via CDN.
+SELF-CHECK: (1) app.view still appended to #game-container. (2) All existing layers still created and added. (3) GlowFilter still on all entities. (4) app.ticker.add() still runs the full loop. (5) Game over overlay still works with restart. (6) No Phaser.* references anywhere.
 
 TYPE: work
 FILENAME: public/style.css
 TASK: ${featureSlug} styles
 ---
-[New CSS for any HTML elements added this cycle. Match existing dark game theme.]
+[New CSS for any HTML elements added this cycle. Match existing dark game theme #0a0a0f.]
 
 ===FILE===
 TYPE: work
 FILENAME: public/app.js
-TASK: Phaser 3 game with ${featureSlug} added
+TASK: PixiJS game with ${featureSlug} added
 ---
-[COMPLETE app.js — ALL existing Phaser scenes + new ${featureName} mechanic integrated. Fully playable.]
+[COMPLETE app.js — ALL existing PixiJS layers, entities, game loop, and game over preserved + new ${featureName} mechanic integrated. Neon glow on new entities. Fully playable.]
 
 No text before first TYPE: or after last block.`;
   })();

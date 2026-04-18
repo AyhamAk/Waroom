@@ -28,8 +28,10 @@ const CDN_MAP = {
   'lodash.js':         'https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js',
   'moment.min.js':     'https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js',
   'moment.js':         'https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js',
-  'pixi.min.js':       'https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js',
-  'pixi.js':           'https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js',
+  'pixi.min.js':         'https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js',
+  'pixi.js':             'https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js',
+  'pixi-filters.js':     'https://cdn.jsdelivr.net/npm/pixi-filters@5.3.1/dist/browser/pixi-filters.js',
+  'pixi-filters.min.js': 'https://cdn.jsdelivr.net/npm/pixi-filters@5.3.1/dist/browser/pixi-filters.js',
   'phaser.min.js':     'https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js',
   'phaser.js':         'https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js',
   'cannon.min.js':     'https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js',
@@ -108,7 +110,8 @@ JS Libraries:
 - GSAP (animation): https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js
 - P5.js: https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js
 - Phaser (game engine): https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js
-- Pixi.js (2D renderer): https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js
+- Pixi.js v7 (WebGL 2D renderer): https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js
+- pixi-filters (GlowFilter, BloomFilter, etc.): https://cdn.jsdelivr.net/npm/pixi-filters@5.3.1/dist/browser/pixi-filters.js
 - Howler.js (audio): https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js
 - Anime.js (animation): https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js
 - Confetti: https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js
