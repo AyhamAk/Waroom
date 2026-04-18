@@ -10,7 +10,7 @@ const path = require('path');
 const { getCDNHint } = require('./tools/cdnResolver');
 
 async function buildPrompt(agentId, live, searchResults = '') {
-  const brief    = live.brief.slice(0, 200);
+  const brief    = live.brief.slice(0, 600);
   const cycle    = live.cycle || 1;
   const category = live.category || 'tech-startup';
 
@@ -48,9 +48,24 @@ TASK: ${taskHint}
     if (feat.stateKeys?.length) featuresCtx += `\nState keys: ${feat.stateKeys.join(', ')}`;
   } catch { /* no inventory yet — cycle 1 */ }
 
+  // Cross-cycle agent memory: prevents regressions and repeated decisions.
+  const memoryRaw = readFile('docs/agent-memory.json');
+  let memoryCtx = '';
+  try {
+    const mem = JSON.parse(memoryRaw);
+    if (mem.lastCycle >= 1) {
+      const bugs = (mem.openBugs || []).length ? `Open bugs: ${mem.openBugs.join('; ')}` : '';
+      const fns  = (mem.jsFunctions || []).length ? `Functions built: ${mem.jsFunctions.slice(0, 15).join(', ')}` : '';
+      memoryCtx = `\n📋 AGENT MEMORY (cross-cycle — do NOT contradict these):
+Past decisions: ${(mem.decisions || []).join(' → ')}
+Files: ${(mem.filesBuilt || []).join(', ')}
+${fns}${bugs ? '\n' + bugs : ''}${mem.hasBackend ? '\nReal backend running at /backend — frontend uses fetch("/backend/...")' : ''}\n`;
+    }
+  } catch { /* no memory yet — cycle 1 */ }
+
   // Summarize a JS file for builder context: show full content up to maxChars,
   // then list any additional function names that were cut off.
-  function summarizeJs(code, maxChars = 3000) {
+  function summarizeJs(code, maxChars = 8000) {
     if (!code) return '(empty)';
     if (code.length <= maxChars) return code;
     const head = code.slice(0, maxChars);
@@ -132,31 +147,34 @@ TASK: ${taskHint}
 
   const CEO_PROMPTS = {
     'tech-startup': `You are an elite Product Manager. Project: "${brief}". Cycle ${cycle}.
-${roadmapCtx}
+${roadmapCtx}${memoryCtx}
 UI SECTIONS BUILT: ${sectionList}
 JS FUNCTIONS IMPLEMENTED: ${jsFunctions}
 COMPLETED CYCLES: ${donePriorities}
 Last cycle: ${lastPriority || 'nothing yet'}
 QA last cycle: ${lastQA ? lastQA.slice(0, 300) : 'N/A'}
+TECH SPEC SUMMARY: ${techSpec ? techSpec.slice(0, 300) : 'none yet'}
 ${fixLimitNote}
 DECISION RULES (follow in strict order — stop at first match):
 1. If VISUAL ANALYSIS says BROKEN or health score ≤ 4 → FIX: <be specific — name the broken component and what exactly is wrong>
 2. NEVER repeat last cycle's decision.
 3. If QA flagged broken logic AND last cycle was NOT already a FIX for the same issue → FIX: <specific>
 4. If JS functions = "none yet" and cycle > 1 → FIX: implement all JS interactivity — data simulation, DOM updates, event handlers
-5. Otherwise → pick the HIGHEST-IMPACT next item from the roadmap (or invent the best next feature if no roadmap).
+5. If the next feature requires modifying or replacing existing logic (not just adding a new section) → FIX: <describe the restructuring needed>. Use FIX for integration work, not just bugs.
+6. If VISION shows health score ≥ 8 AND all features from the brief are implemented AND QA has no BROKEN → output: DONE: <one sentence reason>. Only use DONE when genuinely complete.
+7. Otherwise → pick the HIGHEST-IMPACT next item from the roadmap (or invent the best next feature if no roadmap).
    - NEW PAGE: /name.html — one sentence description
    - SECTION: one sentence description
    Pages so far: ${existingHtmlPages.length}. Prefer new pages after 4+ sections on index.html.
 ${cycle === 1 ? `
 Also output a product roadmap (second file) — 6–8 bullet points covering the complete product vision.` : ''}
-Output exactly ONE line for the feature decision: FIX: ... OR NEW PAGE: ... OR SECTION: ...
+Output exactly ONE line: FIX: ... (bugs OR structural changes) | NEW PAGE: ... | SECTION: ... | DONE: ...
 ${cycle === 1
   ? workFmt('docs/feature-priority.md', 'Feature decision for cycle 1') + '\n\n' +
     `===FILE===\nRespond in this EXACT format, no other text:\nTYPE: work\nFILENAME: docs/product-roadmap.md\nTASK: Product roadmap\n---\n<roadmap content here>`
   : workFmt('docs/feature-priority.md', 'Feature decision for cycle ' + cycle)}`,
 
-    'game-studio': `You are Game Director. Game: "${brief}". Cycle ${cycle}.
+    'game-studio': `You are Game Director. Game: "${brief}". Cycle ${cycle}. Stack: Phaser 3 (scenes, arcade physics, programmatic textures).
 Built: ${sectionList}
 Done: ${donePriorities}
 Last cycle: ${lastPriority || 'nothing yet'}
@@ -164,16 +182,21 @@ QA last cycle: ${lastQA ? lastQA.slice(0, 300) : 'N/A'}
 JS size: ${jsLines} lines
 ${fixLimitNote}
 DECISION RULES (follow in strict order — stop at first match):
-1. Cycle 1 → always: SECTION: complete game with loop, input, collision, score, start/play/gameover states
-2. If VISUAL ANALYSIS above says BROKEN or health score ≤ 4 → FIX: <describe exactly what's broken — black screen, canvas empty, game stuck, etc.>
+1. Cycle 1 → always: SECTION: complete Phaser 3 game — BootScene (programmatic textures), GameScene (physics, input, collision, score, lives), GameOverScene (restart)
+2. If VISUAL ANALYSIS says BROKEN or health score ≤ 4 → FIX: <be specific — Phaser config wrong, scene not starting, physics not set up, black screen because textures not generated, etc.>
 3. NEVER output anything identical or nearly identical to "Last cycle" above.
-4. If QA flagged game-breaking bugs AND last cycle was NOT already a FIX for the same issue → FIX: <specific fix>
-5. If JS < 100 lines → FIX: implement complete game loop with requestAnimationFrame, input handling, collision detection, and score display
-5. Otherwise → add ONE new mechanic:
-   - NEW PAGE: /name.html — description (separate game screen like leaderboard, settings)
-   - SECTION: description (new mechanic, power-up, enemy type, level progression)
+4. If QA flagged game-breaking bugs AND last cycle was NOT already a FIX for the same issue → FIX: <specific Phaser fix>
+5. If JS < 150 lines → FIX: implement all 3 Phaser scenes with physics, input, collision detection, HUD, and game over flow
+6. If VISION shows health score ≥ 8 AND game is fully playable AND QA has no BROKEN → output: DONE: <one sentence reason>. Only use DONE when game is genuinely complete.
+7. Otherwise → add ONE new mechanic (output as SECTION):
+   - Power-ups (speed boost, shield, multi-shot)
+   - New enemy type with different AI (homing, zigzag, splitting)
+   - Level/wave progression with difficulty scaling
+   - Leaderboard / high score persistence (localStorage)
+   - Sound effects (Phaser sound manager + Howler.js)
+   - Boss fight with health bar
 
-Output exactly ONE line: FIX: ... OR NEW PAGE: ... OR SECTION: ...
+Output exactly ONE line: FIX: ... OR SECTION: ... OR DONE: ...
 ${workFmt('docs/feature-priority.md', 'Game feature for cycle ' + cycle)}`,
 
     'film-production': `You are Film Director. Project: "${brief}". Cycle ${cycle}.
@@ -233,14 +256,25 @@ ${workFmt('docs/feature-priority.md', 'Deliverable for cycle ' + cycle)}`,
   const customerCtx = customerFeedback
     ? `\n🚨 CUSTOMER FEEDBACK TO ADDRESS THIS CYCLE: "${customerFeedback}"\n`
     : '';
+
+  // Sanitize search results to prevent prompt injection attacks.
+  // Strip any text that looks like instruction overrides embedded in SEO content.
+  function sanitizeSearchResults(raw) {
+    if (!raw) return '';
+    return raw
+      .slice(0, 2000) // hard cap
+      .replace(/\b(ignore|disregard|forget|override|system\s*:|new\s+instructions?|you\s+are\s+now)\b[\s\S]{0,200}/gi, '[removed]')
+      .replace(/TYPE\s*:\s*work/gi, '[removed]') // prevent fake file blocks
+      .replace(/FILENAME\s*:/gi, '[removed]');
+  }
   const searchNote = searchResults
-    ? `\nWEB SEARCH RESULTS (use to inform your decision):\n${searchResults}\n`
+    ? `\nWEB SEARCH RESULTS (use to inform your decision):\n${sanitizeSearchResults(searchResults)}\n`
     : '';
 
   /* ── Lead Engineer prompts per category ── */
   const LEAD_ENG_PROMPTS = {
     'tech-startup': `You are Lead Engineer. Cycle ${cycle}.
-Task: ${featurePriority || 'Build the full app from scratch.'}${customerCtx}${searchNote}
+Task: ${featurePriority || 'Build the full app from scratch.'}${customerCtx}${searchNote}${memoryCtx}
 Pages: ${existingHtmlPages.join(', ') || 'none'} | Size: ${htmlLines}L HTML, ${cssLines}L CSS, ${jsLines}L JS
 ${isFix ? `Current JS:\n${jsSnapshot}` : ''}
 ⚠️ STACK CONSTRAINT: Vanilla HTML5 + CSS3 + JavaScript ONLY. No React, no TypeScript, no npm, no build tools, no import/export. Files must run directly in the browser with <script src="...">.
@@ -374,20 +408,21 @@ ${workFmt('docs/design-spec.md', 'Design spec cycle ' + cycle)}`,
 
   /* ── QA prompts per category ── */
   const QA_PROMPTS = {
-    'game-studio': `Playtester. Cycle ${cycle}.
+    'game-studio': `Phaser 3 QA Engineer. Cycle ${cycle}.
 Feature built: ${featurePriority || 'core game'} | JS size: ${jsLines} lines
-App.js sample: ${jsSnapshot.slice(0, 400)}
+App.js sample: ${jsSnapshot.slice(0, 500)}
 
-Review the code critically. Check:
-1. Does a game loop exist (requestAnimationFrame or setInterval)?
-2. Is input handling wired up (keydown/keyup/click/touch)?
-3. Does collision detection exist and run each frame?
-4. Are game states handled (start, playing, game over)?
-5. Is score tracked and displayed?
+Review the Phaser 3 code critically. Check:
+1. Does new Phaser.Game(config) exist with parent: 'game-container' and scene array?
+2. Do all scene classes extend Phaser.Scene with correct constructor super({ key: '...' })?
+3. Does BootScene.preload() generate textures programmatically (generateTexture)?
+4. Does GameScene.create() set up physics sprites, overlap/collider, keyboard input, and HUD text?
+5. Does GameScene.update() run player movement, shooting, and win/lose checks?
+6. Does GameOverScene show score and have a restart button?
 
 If ANY of these are missing or broken, flag it with: BROKEN: <description>
-Write max 5 lines. Start each issue with BROKEN: or OK:.
-${workFmt('docs/qa-cycle' + cycle + '.md', 'Playtest cycle ' + cycle)}`,
+Write max 6 lines. Start each issue with BROKEN: or OK:.
+${workFmt('docs/qa-cycle' + cycle + '.md', 'Phaser QA cycle ' + cycle)}`,
 
     'film-production': `Film Editor review. Cycle ${cycle}.
 Feature: ${featurePriority || 'film page'} | Spec: ${techSpec ? techSpec.slice(0, 150) : ''}
@@ -416,14 +451,42 @@ ${workFmt('docs/qa-cycle' + cycle + '.md', 'QA cycle ' + cycle)}`,
 
   /* ── Builder context per category ── */
   const BUILDER_CONTEXT = {
-    'game-studio':     { role: 'Senior Game Developer',            style: 'HTML5 canvas game with real physics and game loop',         palette: 'dark bg (#0a0a0f), neon accent, pixel/sharp aesthetic' },
-    'film-production': { role: 'Frontend Developer for film',      style: 'cinematic, editorial HTML/CSS site',                       palette: 'dark (#0d0d0d), film-grain aesthetic, bold typography' },
-    'ad-agency':       { role: 'Frontend Developer for advertising',style: 'high-converting campaign landing page',                   palette: 'brand-focused, clean, high contrast, bold CTAs' },
-    'newsroom':        { role: 'Frontend Developer for digital news',style: 'editorial news/magazine site',                           palette: 'clean white/off-white, strong typography, journalistic layout' },
-    'consulting':      { role: 'Frontend Developer for consulting', style: 'professional strategy report / presentation',             palette: 'white/light, navy/charcoal, data-friendly charts' },
-    'tech-startup':    { role: 'Senior Full-Stack Developer',       style: 'modern web app',                                          palette: 'dark theme #07090f, accent #00e676, cards #111827' },
+    'game-studio':     { role: 'Senior Phaser 3 Game Developer',     style: 'Phaser 3 HTML5 game with scenes, physics, and input',palette: 'dark bg (#0a0a0f), neon accent, pixel/sharp aesthetic',          framework: 'vanilla' },
+    'film-production': { role: 'Frontend Developer for film',       style: 'cinematic Vue 3 site',                               palette: 'dark (#0d0d0d), film-grain aesthetic, bold typography',           framework: 'vue' },
+    'ad-agency':       { role: 'Frontend Developer for advertising', style: 'Vue 3 campaign page',                               palette: 'brand-focused, clean, high contrast, bold CTAs',                 framework: 'vue' },
+    'newsroom':        { role: 'Frontend Developer for digital news', style: 'Vue 3 editorial site',                             palette: 'clean white/off-white, strong typography, journalistic layout',  framework: 'vue' },
+    'consulting':      { role: 'Frontend Developer for consulting',  style: 'Vue 3 strategy report',                             palette: 'white/light, navy/charcoal, data-friendly charts',               framework: 'vue' },
+    'tech-startup':    { role: 'Senior Full-Stack Developer',        style: 'modern dark web app',                                palette: 'dark theme #07090f, accent #00e676, cards #111827',              framework: 'vanilla' },
   };
   const ctx = BUILDER_CONTEXT[category] || BUILDER_CONTEXT['tech-startup'];
+  const isVue = ctx.framework === 'vue';
+
+  // Smart library hints — scans the brief and suggests the best CDN library to use.
+  // Tells the builder to reach for Chart.js, Phaser, GSAP etc. instead of building from scratch.
+  function getSmartLibraryHints() {
+    if (category === 'game-studio') return ''; // games have their own Phaser guidance
+    const b = (brief || '').toLowerCase();
+    const hints = [];
+    if (/chart|graph|dashboard|analytic|metric|stat|visuali|trading|crypto|stock|price|candlestick/.test(b))
+      hints.push('📊 Chart.js (CDN ready): new Chart(canvasEl, { type: "line"|"bar"|"doughnut", data: { labels, datasets:[{data,borderColor}] }, options })');
+    if (/3d|cube|sphere|rotate|model|scene|render|vr|ar|three/.test(b))
+      hints.push('🧊 Three.js (CDN ready): new THREE.Scene() + Camera + WebGLRenderer + lights + meshes + animation loop');
+    if (/physic|bounce|collide|gravity|rigid|simulat|pendulum|billiard/.test(b))
+      hints.push('⚙️ Matter.js (CDN ready): Engine.create(), Bodies.rectangle/circle(), World.add(), Render.create()');
+    if (/animat|motion|tween|smooth|transition|parallax|morph/.test(b))
+      hints.push('✨ GSAP (CDN ready): gsap.to(el, { duration:1, x:100, opacity:0, ease:"power2.out" }) — far better than CSS transitions');
+    if (/music|audio|sound|beat|synth|tone|instrument|piano/.test(b))
+      hints.push('🔊 Tone.js (CDN ready): new Tone.Synth().toDestination(); synth.triggerAttackRelease("C4","8n") — or Howler.js for playback');
+    if (/map|geo|topolog|d3|network|tree|force|hierarch/.test(b))
+      hints.push('🗺️ D3.js (CDN ready): d3.select/selectAll, scales, axes, line/area/bar generators, force simulation');
+    if (/confetti|celebrat|firework|particle|effect/.test(b))
+      hints.push('🎉 Confetti (CDN ready): confetti({ particleCount:150, spread:90, origin:{y:0.6} })');
+    if (/markdown|code|highlight|syntax|editor/.test(b))
+      hints.push('📝 Marked.js (CDN ready): marked.parse(markdownString) → HTML; Highlight.js for syntax coloring');
+    return hints.length
+      ? `\n💡 POWER-UP HINTS — use these CDN libraries instead of building from scratch:\n${hints.join('\n')}\n`
+      : '';
+  }
 
   const builderPrompt = (() => {
     const isFirstBuild = cycle === 1;
@@ -433,85 +496,425 @@ ${workFmt('docs/qa-cycle' + cycle + '.md', 'QA cycle ' + cycle)}`,
 
     const consoleErrors = (live.consoleErrors || []);
     const consoleNote = consoleErrors.length
-      ? `\n🚨 BROWSER CONSOLE ERRORS (fix these first before adding anything new):\n${consoleErrors.slice(0, 8).map((e, i) => `${i + 1}. ${e}`).join('\n')}\n`
+      ? `\n🚨 BROWSER CONSOLE ERRORS (${consoleErrors.length}) — FIX THESE FIRST:\n${consoleErrors.slice(0, 12).map((e, i) => {
+          const type = /getElementById|querySelector|null|undefined/.test(e) ? '🔗 DOM'
+            : /syntax|unexpected|token/i.test(e) ? '⚠️ SYNTAX'
+            : /fetch|network|cors|404/i.test(e) ? '🌐 NETWORK'
+            : /cannot read|typeerror/i.test(e) ? '💥 RUNTIME' : '❓ OTHER';
+          return `  ${type} ${i + 1}. ${e}`;
+        }).join('\n')}\n`
       : '';
 
     const visionCtx = live.lastVisionReport
       ? `\n📸 SCREENSHOT ANALYSIS (look at the attached screenshot — this is what users see RIGHT NOW):\n${live.lastVisionReport}\nIf this shows a loading screen, blank page, spinner, or broken UI — your PRIMARY job is to fix that, not add new features.\n`
       : '';
 
+    const backendNote = live.backendPort
+      ? `\n🔌 REAL BACKEND RUNNING at http://localhost:${live.backendPort} (proxied via /backend):
+- Use fetch('/backend/...') for ALL data reads and writes in app.js and data.js.
+- Replace ALL setInterval simulations with fetch() calls + setInterval polling.
+- data.js: fetch initial data on load, then poll every 3-5s with fetch.
+- app.js: handle fetch responses and update the DOM with real data.
+- Example: fetch('/backend/api/prices').then(r=>r.json()).then(updatePrices);\n`
+      : '';
+
     const planContext = `PROJECT: ${brief}
 FEATURE: ${featurePriority || 'Build from scratch.'}
-TECH SPEC: ${(techSpec || 'Semantic HTML5, modern CSS, vanilla JS.').slice(0, isFix ? 800 : 600)}
-DESIGN SPEC: ${(designSpec || ctx.palette).slice(0, isFix ? 600 : 400)}${visionCtx}${consoleNote}`;
+TECH SPEC: ${(techSpec || 'Semantic HTML5, modern CSS, vanilla JS.').slice(0, isFix ? 800 : 2000)}
+DESIGN SPEC: ${(designSpec || ctx.palette).slice(0, isFix ? 600 : 800)}${visionCtx}${consoleNote}${memoryCtx}${backendNote}`;
 
     if (isFirstBuild) {
-      const gameExtra = category === 'game-studio' ? `
-GAME REQUIREMENTS — ALL must be present and working in cycle 1:
-FILE SPLIT: data.js = state object + entity classes/constructors + spawn logic. app.js = requestAnimationFrame loop, draw(), update(), input handling.
-- requestAnimationFrame game loop with update(dt) and draw(ctx) functions (in app.js)
-- Input: keyboard (ArrowKeys/WASD/Space) AND mouse/touch click — use a keys:{} state map (in data.js or app.js)
-- At least 2 entity types (player + enemy/obstacle) with distinct behavior
-- AABB or circle collision detection running every frame
-- Score counter and lives displayed on canvas as HUD
-- 3 game states: START SCREEN → PLAYING → GAME OVER (with restart button/key)
-- Particle explosion effect on enemy death
-- The game must be FULLY PLAYABLE end-to-end. Zero stubs, zero TODOs.` : `
-APP REQUIREMENTS — ALL must be present and working in cycle 1:
-FILE SPLIT: data.js = state object + all setInterval simulation loops. app.js = all DOM updates, rendering, event listeners.
-- Every feature mentioned in FEATURE must be implemented and functional
-- All data simulation/generation must be running in data.js (setInterval, random walk)
-- All UI sections rendered with real dynamic data — no hardcoded placeholder text
-- All event listeners wired up (clicks, inputs, form submissions) in app.js
-- Zero stubs, zero TODOs, zero placeholder comments`;
+      const buildPhase = live._buildPhase || 1;
 
-      return `${ctx.role}. Build from scratch: ${ctx.style}.
+      /* ── PHASE 1: HTML structure + complete CSS ── */
+      if (buildPhase === 1) {
+        const selfPlan = isVue
+          ? `PLANNING STEP (decide before writing any HTML):
+1. List every reactive data property this app needs (e.g. prices: {}, portfolio: {}, selectedCoin: 'BTC')
+2. List every method name (e.g. refreshPrices, buyCoins, formatCurrency)
+3. List every computed property (e.g. totalValue, profitPct)
+4. Pick a color accent that fits the domain (base: #07090f dark)
+These become data(), methods{}, computed{} in app.js — be consistent.`.trim()
+          : `PLANNING STEP (decide before writing any HTML):
+1. List every UI section this app needs (e.g. header, price-ticker, chart, portfolio-table, footer)
+2. Assign an element ID to each interactive/dynamic element (e.g. id="price-chart", id="btc-price")
+3. Pick a color accent that fits the domain (base: #07090f dark)
+These IDs will be used verbatim in the JavaScript — be consistent.`.trim();
 
-${planContext}${gameExtra}
+        const htmlStructureHint = category === 'game-studio'
+          ? `PHASER 3 HTML: Keep HTML minimal — Phaser creates its own canvas inside the container.
+Include <div id="game-container"> — Phaser renders here. NO <canvas> tag needed.
+Add <div id="ui-menu" class="game-overlay"> for start/gameover HTML screens layered over the game.
+Include: <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script> BEFORE <script src="app.js"></script>.
+CSS: body{margin:0;background:#0a0a0f;display:flex;align-items:center;justify-content:center;height:100vh}
+     #game-container{position:relative} .game-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10;background:rgba(0,0,0,0.85)}`
+          : `⚠️ VUE 3 TEMPLATE: Use <div id="app"> as the root — Vue mounts here.
+Use {{ property }} for text output. Use @click="method" for events. Use v-for="item in list" :key="item.id" for lists. Use :class/:style for dynamic binding. Use v-if/v-else for conditionals.
+Do NOT use element IDs for JS targeting (CSS IDs are fine, just no getElementById in JS).
+Place <!-- END APP --> just before the closing </div> of <div id="app"> — cycle 2+ injects new sections here.
+Include <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script> BEFORE <script src="app.js"></script>.
+💅 BULMA CSS (zero layout CSS needed): Add <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.9.4/css/bulma.min.css"> to <head>.
+Use Bulma classes: columns/column (flex grid), card/card-content, button/is-primary/is-danger, navbar, hero/hero-body, section, container, table, tag/is-success, notification, progress, modal.
+Your style.css only needs: :root color variables + brand overrides + dark background + custom animations. Let Bulma handle all layout and component structure.`;
 
+        const scriptTags = isVue
+          ? `<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script><script src="app.js"></script>`
+          : category === 'game-studio'
+            ? `<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script><script src="app.js"></script>`
+            : `<script src="data.js"></script><script src="app.js"></script>`;
+
+        // ── Vanilla (tech-startup): output plan + HTML + CSS as one coherent call ──
+        // The plan is written FIRST so both the HTML (this call) and JS (Phase 2) use the same IDs.
+        if (!isVue && category !== 'game-studio') {
+          return `${ctx.role}. CYCLE 1 PHASE 1 — Design the architecture, then build HTML + CSS.
+
+PROJECT: ${brief}
+DESIGN: ${(designSpec || ctx.palette).slice(0, 800)}${memoryCtx}
+${getSmartLibraryHints()}
+QUALITY BAR — output MUST meet ALL of these:
+- Every section from the brief has real content (no "Lorem ipsum", no "Coming soon")
+- At least 5 distinct interactive elements (buttons, inputs, toggles, tabs, cards)
+- CSS uses custom properties (--variables) with a cohesive dark color system
+- Mobile responsive with at least one @media breakpoint
+- The page must look like a real product, not a template
+
+WRITE 3 FILES IN THIS EXACT ORDER:
+
+① docs/build-plan.md — YOUR BINDING CONTRACT (write this first; Phase 2 will follow it exactly)
+   Include:
+   SECTIONS: every UI panel with its exact id= string (e.g. id="price-ticker", id="chart-canvas")
+   STATE:    the complete \`const state = { }\` object with ALL fields and realistic seed values
+   DATA.JS FUNCTIONS: name every simulation/update function (e.g. simulatePrices, updatePortfolio)
+   APP.JS FUNCTIONS:  name every render/event function (e.g. renderTicker, handleBuy, initChart)
+   LIBS:     CDN library choices and why
+
+② public/index.html — Use EXACTLY the element IDs from your plan
+   Vanilla HTML5 only. No frameworks. No inline JS.
+   <link rel="stylesheet" href="style.css"> in <head>
+   <script src="data.js"></script><script src="app.js"></script> before </body>
+   Every section from the brief gets a real DOM structure with real labels and content.
+
+③ public/style.css — Target EXACTLY the IDs and classes from your index.html
+   :root with --bg, --surface, --accent, --text, --border, --success, --danger
+   Dark theme #07090f. Cards with box-shadow. Typography scale. Hover transitions. @media (max-width:768px).
+\x00CACHE_SPLIT\x00
 ${getCDNHint()}
 
-⚠️ CRITICAL STACK RULE: Write ONLY vanilla HTML5 + CSS3 + plain JavaScript. NO React, NO TypeScript, NO npm, NO import/export, NO JSX, NO build tools. All files load directly in the browser via <script src="...">.
-⚠️ NO TYPE ANNOTATIONS: Never write x: string, x: number, x: MyType, interface Foo {}, type Foo = ..., <T>, or 'as Type'. These are TypeScript and will crash the browser. Write plain JS: function foo(x, y) { not function foo(x: string, y: number): void {
+TYPE: work
+FILENAME: docs/build-plan.md
+TASK: architecture plan — the contract between Phase 1 and Phase 2
+---
+SECTIONS:
+  [list every UI panel: name — id="exact-id-here"]
+STATE:
+  const state = {
+    [every field with type and seed value, e.g. prices: { BTC: 43250, ETH: 2280 }]
+  };
+DATA.JS FUNCTIONS:
+  [e.g. simulatePrices() — setInterval, updates state.prices every 2s]
+APP.JS FUNCTIONS:
+  [e.g. renderTicker() — writes to #price-ticker, called from data.js after each update]
+LIBS:
+  [e.g. Chart.js — for price history line chart on #chart-canvas]
 
-Write one block per file, separated by ===FILE===. Required files in THIS EXACT ORDER: index.html → style.css → data.js → app.js.
-⚠️ CSS MUST come second — it is written before JavaScript so the app is never unstyled even if JS is long.
-SPLIT THE JAVASCRIPT INTO TWO FILES to keep each file manageable:
-- data.js: ALL state objects, data simulation, setInterval loops, data generation algorithms — no DOM code, no imports
-- app.js: ALL DOM updates, chart rendering, event listeners, initialization — reads globals from data.js
-
-index.html must have: <link href="style.css"> and TWO script tags: <script src="data.js"></script> then <script src="app.js"></script>
-IMPORTANT: Write COMPLETE, production-quality code. No truncation. No stubs. index.html and data.js are output first so they are never cut off.
-SELF-CHECK before writing each JS file: (1) Every { has a matching }. (2) Every function called is defined somewhere. (3) DOMContentLoaded listener wraps all DOM code in app.js. (4) All setInterval/requestAnimationFrame calls are actually started. (5) No variable is declared twice.
-
+===FILE===
 TYPE: work
 FILENAME: public/index.html
-TASK: complete HTML — all sections with correct IDs and classes matching the tech spec
+TASK: complete HTML — every section with exact IDs from the plan
 ---
-[Write the complete HTML file. Include every section. Use exact element IDs specified in tech spec. Semantic structure. Include <script src="data.js"></script><script src="app.js"></script> before </body>.]
+[COMPLETE HTML using the element IDs from docs/build-plan.md. Every section from the brief. Real content, real labels. No placeholder text.]
 
 ===FILE===
 TYPE: work
 FILENAME: public/style.css
-TASK: complete stylesheet — all CSS variables from design spec, every component fully styled, all animations
+TASK: complete CSS — targets every ID and class in index.html
 ---
-[Write the COMPLETE CSS file NOW — before any JavaScript. This is the highest priority visual file. Declare all :root --variables. Style every element ID and class from index.html. Dark theme, polished UI. Include all animations and transitions. Do NOT truncate.]
+[COMPLETE CSS. :root variables first. Style EVERY element ID and class from the HTML. Dark theme. Cards, shadows, colors, transitions, responsive.]
+
+No text before first TYPE: or after last block.`;
+        }
+
+        // ── Vue / game-studio Phase 1: existing path ──
+        return `${ctx.role}. PHASE 1 of 2 — Build the visual shell for: ${ctx.style}
+
+${selfPlan}
+
+PROJECT: ${brief}
+DESIGN: ${(designSpec || ctx.palette).slice(0, 800)}${memoryCtx}
+
+YOUR TASK THIS PHASE: Output ONLY index.html and style.css. NO JavaScript yet.
+${htmlStructureHint}
+\x00CACHE_SPLIT\x00
+${getCDNHint()}${getSmartLibraryHints()}
+⚠️ Write style.css FIRST so the page renders styled immediately.
+${isVue
+  ? `⚠️ Vue template syntax ONLY in HTML. No vanilla JS. The <div id="app"> is the Vue root.`
+  : `⚠️ Vanilla HTML5 + CSS3 ONLY. No JavaScript in this phase.\n⚠️ Use descriptive element IDs that JavaScript can target: id="btc-price", id="portfolio-table", id="chart-canvas"`}
+
+TYPE: work
+FILENAME: public/style.css
+TASK: complete stylesheet — all CSS variables, every section styled, animations, mobile responsive
+---
+[Write the COMPLETE CSS. :root with all --variables (--bg, --surface, --accent, --text, --border, --success, --danger). Style EVERY element ID and class. Dark theme with accent color. Cards with shadows. Typography scale. Hover/transition states. Mobile responsive @media (max-width: 768px). Polished production quality. Do NOT truncate.]
 
 ===FILE===
 TYPE: work
-FILENAME: public/data.js
-TASK: all state objects, data simulation, setInterval loops, data generation — no DOM code
+FILENAME: public/index.html
+TASK: complete HTML — semantic structure with all UI sections${isVue ? ' using Vue template syntax' : ' and their element IDs'}
 ---
-[Write ALL state: const state = {...}. Write ALL simulation: setInterval(simulatePrices, 2000). Write helper data functions. Zero DOM manipulation here — only pure data logic.]
+[Write the COMPLETE HTML. Every section from the brief gets its own element. Link <link rel="stylesheet" href="style.css">. Add ${scriptTags} before </body>. No inline JS. No placeholder text — write real labels and structure.]
+
+No text before first TYPE: or after last block.`;
+      }
+
+      /* ── PHASE 2: JS logic — Vue path (app.js only) or vanilla path (data.js + app.js) ── */
+
+      if (isVue) {
+        // Vue 3: single app.js with createApp. No data.js needed.
+        // Read the actual HTML template to understand what bindings to implement.
+        const actualHtml = readFile('public/index.html') || html;
+
+        return `${ctx.role}. PHASE 2 of 2 — Build the Vue 3 JavaScript for: ${ctx.style}
+
+PROJECT: ${brief}
+The HTML template and CSS are already written. Your ONLY job: implement the Vue 3 app.js.
+
+TEMPLATE ANALYSIS — look at index.html and implement ALL of:
+- Every {{ expression }} → must be a data() property or computed{}
+- Every @event="method" → must be in methods{}
+- Every v-model="prop" → must be in data()
+- Every v-for="item in list" → list must be in data() (initialize as array)
+- Every :attr="expr" → expr must resolve on the Vue instance
+
+ACTUAL INDEX.HTML (reference this — implement every binding you see):
+${actualHtml.slice(0, 6000)}
+
+${memoryCtx}${backendNote}${getSmartLibraryHints()}
+⚠️ OUTPUT: ONE file only — public/app.js. No data.js needed (all state lives in Vue data()).
+⚠️ NO getElementById, no querySelector, no document.* DOM manipulation — Vue handles all DOM reactively.
+⚠️ Use this.propertyName inside methods{} and mounted() — not window globals.
+⚠️ Simulations in mounted(): setInterval(() => { this.prices.BTC *= (1 + (Math.random()-0.5)*0.02); }, 2000)
+⚠️ Initialize data() with realistic seed values so the app looks live immediately (not empty arrays/zeros).
+SELF-CHECK: (1) Every {{ expr }} in the HTML has a matching data() key or computed. (2) Every @click="x" has method x defined. (3) mounted() starts all simulations and initial data loads. (4) No getElementById anywhere. (5) No import/export statements.
+
+TYPE: work
+FILENAME: public/app.js
+TASK: complete Vue 3 app — data, computed, methods, mounted
+---
+[Write the COMPLETE app.js using Vue 3 Options API:
+const { createApp } = Vue;
+createApp({
+  data() {
+    return {
+      // ALL reactive state with realistic seed data
+    };
+  },
+  computed: {
+    // derived values: totals, percentages, formatted strings
+  },
+  methods: {
+    // ALL event handlers and data mutations
+    // Use this.x to access/mutate data properties
+  },
+  mounted() {
+    // Start ALL simulations: setInterval(() => { this.x = ...; }, interval)
+    // Initial data loads, fetch calls
+    // this.x refers to data properties
+  }
+}).mount('#app');
+ZERO getElementById. ZERO external state globals. ZERO imports. Fully functional from first page load.]
+
+No text before TYPE: or after last block.`;
+      }
+
+      // ── Vanilla Phase 2: read plan + HTML, write data.js + app.js ──
+      if (!isVue && category !== 'game-studio') {
+        const actualHtml = readFile('public/index.html') || html;
+        const buildPlan  = readFile('docs/build-plan.md');
+
+        return `${ctx.role}. CYCLE 1 PHASE 2 — Implement the JavaScript.
+
+PROJECT: ${brief}
+The HTML and CSS are already written. Write data.js and app.js that bring them to life.
+
+BUILD PLAN — follow this EXACTLY (use these IDs, state fields, and function names):
+${buildPlan
+  ? buildPlan.slice(0, 3000)
+  : 'No plan file found — derive state model and element IDs from the HTML below.'}
+
+ACTUAL index.html (target ONLY the element IDs you see here):
+${actualHtml.slice(0, 5000)}
+
+${memoryCtx}${backendNote}${getSmartLibraryHints()}
+RULES:
+⚠️ Vanilla JS ONLY. No imports, no modules, no TypeScript, no frameworks.
+⚠️ data.js loads FIRST — define \`const state = {...}\` globally and start all setIntervals here.
+⚠️ app.js loads SECOND — wire all DOM events, call render functions, start on DOMContentLoaded.
+⚠️ getElementById/querySelector targets must match EXACTLY the IDs in the HTML above.
+⚠️ Initialize state with realistic seed data so the app looks live from first load.
+⚠️ ZERO placeholder functions, ZERO stubs, ZERO TODOs — every function fully implemented.
+
+SELF-CHECK: (1) Every element ID referenced in JS exists in the HTML. (2) DOMContentLoaded wraps all DOM code in app.js. (3) setInterval simulations start in data.js. (4) No variable declared twice across both files. (5) Removing either file would break the app — both files are needed.
+
+TYPE: work
+FILENAME: public/data.js
+TASK: state object + all simulation/update functions
+---
+[COMPLETE data.js:
+- const state = { ALL fields with realistic seed values }
+- ALL simulation functions (setInterval loops that mutate state and call render functions)
+- Helper functions (formatCurrency, formatPct, randomWalk, etc.)
+- Call initSimulations() at the bottom to start all intervals
+Every function from DATA.JS FUNCTIONS in the plan — fully implemented, no stubs.]
 
 ===FILE===
 TYPE: work
 FILENAME: public/app.js
-TASK: all DOM updates, chart rendering, event listeners, initialization — reads state from data.js
+TASK: DOM wiring + all render/event functions
 ---
-[Write ALL DOM code: renderChart(), updatePrices(), bindEvents(). Initialize on DOMContentLoaded. References state defined in data.js. No stubs.]
+[COMPLETE app.js wrapped in DOMContentLoaded:
+document.addEventListener('DOMContentLoaded', () => {
+  // ALL render functions — update DOM elements by their exact IDs from the HTML
+  // ALL event handlers — buttons, inputs, tabs, selectors
+  // Initial render calls — populate every panel on first load
+  // Any Chart.js or library initialization if used
+});
+Every function from APP.JS FUNCTIONS in the plan — fully implemented, no stubs.]
 
 No text before first TYPE: or after last block.`;
+      }
+
+      // Phaser 3 path (game-studio) — single app.js with scene classes
+      // Working scaffold: customize this instead of starting from scratch
+      const phaserScaffold = `class BootScene extends Phaser.Scene {
+  constructor() { super({ key: 'Boot' }); }
+  preload() {
+    // Generate ALL textures here programmatically — zero external files needed
+    const g = this.make.graphics({ x: 0, y: 0, add: false });
+    g.fillStyle(0x00e676); g.fillRect(0, 0, 32, 32); g.generateTexture('player', 32, 32);
+    g.clear(); g.fillStyle(0xff4444); g.fillTriangle(16,0, 32,32, 0,32); g.generateTexture('enemy', 32, 32);
+    g.clear(); g.fillStyle(0xffff00); g.fillCircle(4, 4, 4); g.generateTexture('bullet', 8, 8);
+    g.destroy();
+  }
+  create() { this.scene.start('Game'); }
+}
+
+class GameScene extends Phaser.Scene {
+  constructor() { super({ key: 'Game' }); }
+  create() {
+    this.score = 0; this.lives = 3; this.wave = 1;
+    this.player = this.physics.add.sprite(400, 540, 'player').setCollideWorldBounds(true);
+    this.enemies = this.physics.add.group();
+    this.bullets = this.physics.add.group({ runChildUpdate: true });
+    this.scoreText = this.add.text(16, 16, 'Score: 0', { fontSize: '20px', color: '#0ff' }).setScrollFactor(0);
+    this.livesText = this.add.text(16, 44, 'Lives: 3', { fontSize: '18px', color: '#f66' }).setScrollFactor(0);
+    this.waveText  = this.add.text(16, 72, 'Wave: 1',  { fontSize: '18px', color: '#ff0' }).setScrollFactor(0);
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.wasd = this.input.keyboard.addKeys({ up:'W', left:'A', down:'S', right:'D' });
+    this.fireKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.physics.add.overlap(this.bullets, this.enemies, this.hitEnemy, null, this);
+    this.physics.add.overlap(this.player, this.enemies, this.playerHit, null, this);
+    this.spawnTimer = this.time.addEvent({ delay: 1200, callback: this.spawnEnemy, callbackScope: this, loop: true });
+    this.lastFired = 0;
+  }
+  update(time, delta) {
+    this.player.setVelocity(0);
+    if (this.cursors.left.isDown  || this.wasd.left.isDown)  this.player.setVelocityX(-280);
+    if (this.cursors.right.isDown || this.wasd.right.isDown) this.player.setVelocityX(280);
+    if (this.cursors.up.isDown    || this.wasd.up.isDown)    this.player.setVelocityY(-280);
+    if (this.cursors.down.isDown  || this.wasd.down.isDown)  this.player.setVelocityY(280);
+    if (Phaser.Input.Keyboard.JustDown(this.fireKey) || (time - this.lastFired > 250 && this.fireKey.isDown)) {
+      this.fireBullet(); this.lastFired = time;
+    }
+  }
+  fireBullet() {
+    const b = this.bullets.create(this.player.x, this.player.y - 20, 'bullet');
+    b.setVelocityY(-500); b.setActive(true); b.setVisible(true);
+    b.update = () => { if (b.y < 0) b.destroy(); };
+  }
+  spawnEnemy() {
+    const x = Phaser.Math.Between(32, 768);
+    const e = this.enemies.create(x, 32, 'enemy');
+    e.setVelocityY(60 + this.wave * 15);
+    e.checkWorldBounds = true; e.outOfBoundsKill = true;
+  }
+  hitEnemy(bullet, enemy) {
+    bullet.destroy(); enemy.destroy();
+    this.score += 10; this.scoreText.setText('Score: ' + this.score);
+    this.cameras.main.flash(80, 255, 200, 0);
+    if (this.enemies.countActive() === 0) this.nextWave();
+  }
+  playerHit(player, enemy) {
+    enemy.destroy(); this.lives--;
+    this.livesText.setText('Lives: ' + this.lives);
+    this.cameras.main.shake(200, 0.015);
+    if (this.lives <= 0) this.scene.start('GameOver', { score: this.score });
+  }
+  nextWave() {
+    this.wave++;
+    this.waveText.setText('Wave: ' + this.wave);
+    this.spawnTimer.delay = Math.max(400, 1200 - this.wave * 80);
+  }
+}
+
+class GameOverScene extends Phaser.Scene {
+  constructor() { super({ key: 'GameOver' }); }
+  create(data) {
+    this.add.text(400, 220, 'GAME OVER', { fontSize: '56px', color: '#ff4444', fontStyle: 'bold' }).setOrigin(0.5);
+    this.add.text(400, 310, 'Score: ' + (data?.score || 0), { fontSize: '32px', color: '#ffffff' }).setOrigin(0.5);
+    const btn = this.add.text(400, 410, '[ PLAY AGAIN ]', { fontSize: '28px', color: '#00e676', backgroundColor: '#1a1a2e', padding: { x: 24, y: 12 } })
+      .setOrigin(0.5).setInteractive({ useHandCursor: true });
+    btn.on('pointerover', () => btn.setColor('#ffffff'));
+    btn.on('pointerout',  () => btn.setColor('#00e676'));
+    btn.on('pointerdown', () => this.scene.start('Game'));
+  }
+}
+
+const config = {
+  type: Phaser.AUTO, width: 800, height: 600,
+  parent: 'game-container', backgroundColor: '#0a0a0f',
+  physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+  scene: [BootScene, GameScene, GameOverScene]
+};
+new Phaser.Game(config);`.trim();
+
+      return `${ctx.role}. PHASE 2 of 2 — Build the Phaser 3 game for: "${brief}"
+
+The HTML shell and CSS are already written. Your ONLY job: write app.js based on the working scaffold below.
+
+${memoryCtx}${backendNote}
+WORKING SCAFFOLD — this already runs. Customize it to match "${brief}":
+${phaserScaffold}
+
+YOUR JOB — modify the scaffold above to match the brief:
+1. BootScene.preload(): re-draw textures to fit the game's theme (colors, shapes, sizes)
+2. GameScene: adapt player movement, shooting/attack, enemy behavior and AI per the brief
+3. Tune spawn rate, speeds, and difficulty scaling to feel right for this genre
+4. Add extra scenes or mechanics the brief calls for (boss, power-ups, platformer physics, etc.)
+5. Keep all existing infrastructure: arcade physics, collider wiring, HUD text, GameOver flow
+
+WHAT MAKES A GREAT GAME:
+✅ All textures generated programmatically in BootScene.preload() — zero external files
+✅ Player movement via keyboard arrows/WASD (or touch for mobile)
+✅ Shooting / attack mechanic (space, click, or theme-appropriate input)
+✅ At least 2 enemy types with distinct movement patterns
+✅ Physics overlap/collider for all interactions (bullets↔enemies, player↔enemies)
+✅ Score + lives/health tracked and displayed as HUD text via setScrollFactor(0)
+✅ Boot → Game → GameOver scenes with restart
+✅ Wave/difficulty progression
+✅ FULLY PLAYABLE from first load — zero stubs, zero TODOs
+
+${getSmartLibraryHints()}
+⚠️ Output ONLY app.js. No data.js. No import/export. Phaser is global via CDN.
+SELF-CHECK: (1) All 3 scene classes extend Phaser.Scene. (2) preload() generates all textures. (3) create() wires all colliders and input. (4) update() runs game logic every frame. (5) GameOver has restart button. (6) new Phaser.Game(config) at bottom.
+
+TYPE: work
+FILENAME: public/app.js
+TASK: complete Phaser 3 game — BootScene + GameScene + GameOverScene
+---
+[Write the COMPLETE app.js — customize the scaffold above for "${brief}". Every feature above implemented. Fully playable from first load.]
+
+No text before TYPE: or after last block.`;
     }
 
     // FIX MODE — rewrite the broken file completely
@@ -537,7 +940,7 @@ No text before first TYPE: or after last block.`;
         ? `\nELEMENT IDs IN CURRENT index.html: ${htmlIds.slice(0, 40).join(', ')}\n⚠️ YOUR JS MUST USE THESE EXACT IDs — do NOT invent new ones unless you also rewrite index.html.\n`
         : '';
       return `${ctx.role}. FIX broken logic in existing ${ctx.style}.
-
+${isVue ? `FRAMEWORK: Vue 3. Use this.propertyName inside methods/mounted. No getElementById — Vue handles all DOM reactively.\n` : ''}
 ${planContext}
 FIX TASK: ${featurePriority}
 
@@ -568,44 +971,151 @@ TASK: fix ${featureSlug}
 Only output files that need changing. No text before first TYPE: or after last block.`;
     }
 
-    return `${ctx.role}. Add feature to existing ${ctx.style}.
+    // Extract existing HTML element IDs so builder targets correct selectors
+    const existingHtmlIds = [...html.matchAll(/\bid=["']([^"']+)["']/gi)].map(m => m[1]).slice(0, 60);
+    const htmlIdsNote = existingHtmlIds.length
+      ? `\nEXISTING ELEMENT IDs IN index.html: ${existingHtmlIds.join(', ')}\n⚠️ Your JS must target THESE EXACT IDs for existing elements. New feature gets NEW IDs as defined in TECH SPEC.\n`
+      : '';
+
+    const featureName = featureSlug.replace(/-/g, '');
+
+    // ── Vue 3 cycle 2+ — full app.js rewrite (createApp cannot be appended to) ──
+    if (isVue) {
+      return `${ctx.role}. Add ONE new feature to existing ${ctx.style}.
 
 ${planContext}
 
-Pages: ${existingPages}
-${featuresCtx ? `FEATURES BUILT SO FAR:\n${featuresCtx}\n` : ''}
-CURRENT data.js (you MUST preserve all of this plus add the new feature):
-${summarizeJs(dataJs)}
+⚠️ VUE 3 REWRITE RULE: Vue's createApp({}) is a single declaration — it CANNOT be appended to.
+Always use TYPE: work for app.js. Include ALL existing data/methods/computed PLUS the new feature.
 
-CURRENT app.js (you MUST preserve all of this plus add the new feature):
-${summarizeJs(appJs)}
+CURRENT app.js (preserve ALL existing — add "${featurePriority}" on top of this):
+${appJs ? summarizeJs(appJs, 6000) : '(none yet — write the full Vue app from scratch)'}
 
-⚠️ STACK RULE: Vanilla HTML/CSS/JavaScript ONLY. No React, no TypeScript, no import/export.
-⚠️ FULL REWRITE RULE: Output COMPLETE replacement files for data.js and app.js — the server replaces the entire file each cycle. You MUST include ALL existing code from the "CURRENT" sections above plus your new additions. Do NOT omit any existing function or state.
-⚠️ NO STRICT MODE: Do NOT write 'use strict'. No TypeScript type annotations.
-SELF-CHECK before writing each JS file: (1) Every { has a matching }. (2) All functions listed in FEATURES BUILT are present. (3) DOMContentLoaded wraps all DOM code in app.js. (4) No variable declared twice. (5) All setInterval/RAF calls are started.
+${featuresCtx ? `FEATURES ALREADY BUILT (preserve ALL of these in your rewrite):\n${featuresCtx}\n` : ''}
+For "${featurePriority}" add:
+1. New data properties → add to data() return (keep ALL existing keys)
+2. New methods → add to methods{} (keep ALL existing methods)
+3. New computed → add to computed{} if needed
+4. New mounted() init → add setInterval/fetch calls (keep existing simulations running)
+5. New HTML section → output as TYPE: work for index.html (server injects before <!-- END APP --> inside #app)
+
+⚠️ NO getElementById anywhere. Use this.x inside methods/mounted to access Vue data.
+⚠️ No import/export, no TypeScript annotations.
+SELF-CHECK: (1) ALL existing methods from FEATURES list are still in methods{}. (2) ALL existing data keys still in data(). (3) mounted() still starts all previous simulations. (4) Zero getElementById.
 
 TYPE: work
 FILENAME: public/style.css
-TASK: ${featureSlug} styles — new CSS rules for this feature only
+TASK: ${featureSlug} styles — append new rules only
 ---
-[new CSS for this feature only — complete styles, no placeholders]
-
-===FILE===
-TYPE: work
-FILENAME: public/data.js
-TASK: complete data.js — all existing state/simulation plus new feature
----
-[COMPLETE data.js — ALL existing state objects and simulation loops from CURRENT data.js above, PLUS new feature data and logic. No omissions.]
+[New CSS rules ONLY for ${featureSlug}. Use EXISTING CSS variables (--bg, --surface, --accent, --text, --border). Do NOT redefine :root or override existing selectors.]
 
 ===FILE===
 TYPE: work
 FILENAME: public/app.js
-TASK: complete app.js — all existing DOM code plus new feature
+TASK: complete Vue 3 app with ${featureSlug} integrated
 ---
-[COMPLETE app.js — ALL existing render/event/init functions from CURRENT app.js above, PLUS new feature implementation. No omissions.]
+[COMPLETE app.js — ALL existing data/computed/methods/mounted PLUS new ${featureName} feature added.
+const { createApp } = Vue; createApp({ data(){return{...}}, computed:{...}, methods:{...}, mounted(){...} }).mount('#app');
+ZERO getElementById. Every existing method preserved. Every existing simulation still running.]
 
-New page → full document with <link href="style.css"> + <script src="data.js"></script><script src="app.js"></script>. Existing HTML → new section only (server injects before </body>).
+===FILE===
+TYPE: work
+FILENAME: public/index.html
+TASK: new ${featureSlug} section — server injects inside #app div
+---
+[New HTML section ONLY using Vue template syntax ({{ }}, @click, v-for, v-if).
+Server injects this before <!-- END APP --> inside <div id="app">. Do NOT output the full page.]
+
+No text before first TYPE: or after last block.`;
+    }
+
+    // ── Vanilla cycle 2+ (tech-startup) — full data.js + app.js rewrite with new feature ──
+    if (!isVue && category !== 'game-studio') {
+      const buildPlan = readFile('docs/build-plan.md');
+      return `${ctx.role}. Add ONE new feature to existing ${ctx.style}.
+
+${planContext}${htmlIdsNote}
+⚠️ VANILLA REWRITE RULE: data.js and app.js share global state — always rewrite both completely.
+Include ALL existing functionality PLUS the new feature.
+
+BUILD PLAN (reference for existing state shape and IDs):
+${buildPlan ? buildPlan.slice(0, 1500) : '(no plan — derive from existing HTML IDs listed above)'}
+
+CURRENT data.js (preserve ALL existing state and simulations):
+${dataJs ? summarizeJs(dataJs, 3000) : '(none yet — write from scratch)'}
+
+CURRENT app.js (preserve ALL existing render and event logic):
+${appJs ? summarizeJs(appJs, 3000) : '(none yet — write from scratch)'}
+
+${featuresCtx ? `FEATURES ALREADY BUILT (preserve ALL of these):\n${featuresCtx}\n` : ''}
+For "${featurePriority}" add:
+1. New state fields in data.js const state = {} (keep ALL existing fields)
+2. New simulation/update functions in data.js (keep ALL existing intervals)
+3. New render functions in app.js (keep ALL existing render logic)
+4. New event handlers in app.js (keep ALL existing event handlers)
+5. New HTML section in index.html if needed (output as ===FILE=== block)
+6. New CSS rules in style.css (new rules only — keep existing vars and selectors)
+
+SELF-CHECK: (1) Every existing state key still in state. (2) All existing setIntervals still running. (3) DOMContentLoaded still wraps all DOM code in app.js. (4) Every getElementById target exists in current or new HTML. (5) No variable declared twice.
+
+TYPE: work
+FILENAME: public/style.css
+TASK: ${featureSlug} styles — new rules only
+---
+[New CSS for ${featureSlug} only. Use EXISTING --variables. Do NOT redefine :root or override existing selectors.]
+
+===FILE===
+TYPE: work
+FILENAME: public/data.js
+TASK: complete data.js — all existing state + ${featureSlug} additions
+---
+[COMPLETE data.js — ALL existing state fields and simulations preserved, plus new ${featureName} state and simulation. No stubs. initSimulations() at bottom.]
+
+===FILE===
+TYPE: work
+FILENAME: public/app.js
+TASK: complete app.js — all existing logic + ${featureSlug} integrated
+---
+[COMPLETE app.js — ALL existing render functions and event handlers preserved, plus new ${featureName} render and events. DOMContentLoaded wrapper. No stubs.]
+
+No text before first TYPE: or after last block.`;
+    }
+
+    // ── Phaser 3 cycle 2+ (game-studio) — full app.js rewrite adding the new mechanic ──
+    return `${ctx.role}. Add ONE new mechanic to existing ${ctx.style}.
+
+${planContext}
+
+⚠️ PHASER 3 REWRITE RULE: Phaser game config and scenes are a single block — always TYPE: work for app.js.
+Include ALL existing scenes + new mechanic integrated. Keep all existing gameplay working.
+
+CURRENT app.js (preserve ALL existing scenes — add "${featurePriority}" on top):
+${appJs ? summarizeJs(appJs, 6000) : '(none yet — write the complete Phaser 3 game from scratch)'}
+
+${featuresCtx ? `FEATURES ALREADY BUILT (preserve ALL):\n${featuresCtx}\n` : ''}
+For "${featurePriority}" extend the existing Phaser 3 game:
+1. New data in GameScene (properties on this) — or new Scene if warranted
+2. New game objects in create() — sprites, groups, timers
+3. New update() logic — movement, AI, collision handlers
+4. New assets in BootScene.preload() — generate textures programmatically
+5. CSS/HTML changes if a new UI element is needed (HUD, panel, button)
+
+⚠️ No import/export. No TypeScript annotations. Phaser is a global via CDN.
+SELF-CHECK: (1) All existing scenes preserved. (2) BootScene generates all textures. (3) Colliders still wired. (4) new Phaser.Game(config) still at bottom.
+
+TYPE: work
+FILENAME: public/style.css
+TASK: ${featureSlug} styles
+---
+[New CSS for any HTML elements added this cycle. Match existing dark game theme.]
+
+===FILE===
+TYPE: work
+FILENAME: public/app.js
+TASK: Phaser 3 game with ${featureSlug} added
+---
+[COMPLETE app.js — ALL existing Phaser scenes + new ${featureName} mechanic integrated. Fully playable.]
+
 No text before first TYPE: or after last block.`;
   })();
 
@@ -629,6 +1139,35 @@ Spec: ${techSpec ? techSpec.slice(0, 150) : ''}
 Write design spec (≤80 words): colors, layout, component appearance.
 ${workFmt('docs/design-spec.md', 'Design spec cycle ' + cycle)}`,
     builder:    builderPrompt,
+    'backend-eng': `You are Backend Engineer. Project: "${brief}". Cycle ${cycle}.
+
+TECH SPEC (the frontend will call these data shapes — your API MUST match):
+${techSpec ? techSpec.slice(0, 800) : featurePriority || 'Build a REST API for this app.'}
+
+Features to expose as API: ${featuresCtx || featurePriority}
+
+Write a complete Node.js HTTP backend using ONLY built-in modules (http, fs, path, url).
+NO external dependencies — no express, no cors packages. Pure Node.js built-ins only.
+
+Requirements:
+1. CORS headers on every response: Access-Control-Allow-Origin: *
+2. Content-Type: application/json on all responses
+3. Handle OPTIONS preflight requests (return 204)
+4. JSON file database: read/write a local db.json file for persistence
+5. Include seed data so the app works immediately on first run
+6. Endpoint naming: use the EXACT paths the frontend will call based on the tech spec above
+   e.g. if tech spec says "fetch prices from /api/prices" → expose GET /api/prices
+7. Response shape: match the data structure described in the tech spec exactly
+   e.g. if state.prices = { BTC: 45000 } → GET /api/prices returns { "BTC": 45000 }
+8. Comprehensive CRUD endpoints tailored to the project brief
+9. Server listens on process.env.PORT || 3001
+
+Helper pattern to use:
+  const DB = path.join(__dirname, 'db.json');
+  function readDB() { try { return JSON.parse(fs.readFileSync(DB,'utf8')); } catch { return {/* seed */}; } }
+  function writeDB(d) { fs.writeFileSync(DB, JSON.stringify(d,null,2)); }
+
+${workFmt('api/server.js', 'Node.js REST API backend')}`,
     qa:         QA_PROMPTS[category]       || `QA Engineer. Cycle ${cycle}.
 Feature: ${featurePriority || 'landing page'} | Spec: ${techSpec ? techSpec.slice(0, 150) : ''}
 Write 3 Given/When/Then test cases.

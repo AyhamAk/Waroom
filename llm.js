@@ -23,10 +23,14 @@ function getModels(provider) {
    NON-STREAMING — used by pipeline.js callAgent
    Returns { text, inputTokens, outputTokens }
    ══════════════════════════════════════════════ */
+// Singleton Anthropic clients keyed by apiKey — avoid re-instantiating on every call
+const _anthropicClients = {};
+
 async function createMessage({ provider, apiKey, model, maxTokens, messages }) {
   if (provider === 'anthropic') {
     const Anthropic = require('@anthropic-ai/sdk');
-    const client = new Anthropic({ apiKey });
+    const client = _anthropicClients[apiKey] ||
+      (_anthropicClients[apiKey] = new Anthropic({ apiKey }));
     const msg = await client.messages.create({ model, max_tokens: maxTokens, messages });
     return {
       text: msg.content[0].text,

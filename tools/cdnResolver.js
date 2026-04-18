@@ -41,6 +41,17 @@ const CDN_MAP = {
   'confetti.min.js':   'https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js',
   'html2canvas.min.js':'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
   'jszip.min.js':      'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+  'vue.global.prod.min.js': 'https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js',
+  'vue.min.js':             'https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js',
+  'vue.js':                 'https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js',
+  'faker.min.js':           'https://cdnjs.cloudflare.com/ajax/libs/Faker/5.5.3/faker.min.js',
+  'faker.js':               'https://cdnjs.cloudflare.com/ajax/libs/Faker/5.5.3/faker.min.js',
+  'dayjs.min.js':           'https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/dayjs.min.js',
+  'dayjs.js':               'https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/dayjs.min.js',
+  'kaboom.js':              'https://unpkg.com/kaboom@3000.1.17/dist/kaboom.js',
+  'babylon.js':             'https://cdn.babylonjs.com/babylon.js',
+  'numeral.min.js':         'https://cdnjs.cloudflare.com/ajax/libs/numeral.js/2.0.6/numeral.min.js',
+  'numeral.js':             'https://cdnjs.cloudflare.com/ajax/libs/numeral.js/2.0.6/numeral.min.js',
 };
 
 // CSS CDN map
@@ -48,6 +59,8 @@ const CSS_CDN_MAP = {
   'font-awesome':      'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css',
   'bootstrap.min.css': 'https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css',
   'normalize.css':     'https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css',
+  'bulma.min.css':     'https://cdnjs.cloudflare.com/ajax/libs/bulma/0.9.4/css/bulma.min.css',
+  'animate.min.css':   'https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css',
 };
 
 function resolveCDNs(html) {
@@ -86,7 +99,8 @@ function resolveCDNs(html) {
 
 // Returns a string listing available CDN libraries for injection into prompts
 function getCDNHint() {
-  return `Available CDN libraries (use these exact URLs in <script src>):
+  return `Available CDN libraries (use these exact URLs in <script src> or <link href>):
+JS Libraries:
 - Chart.js: https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js
 - Three.js: https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js
 - Matter.js (physics): https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js
@@ -97,7 +111,17 @@ function getCDNHint() {
 - Pixi.js (2D renderer): https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js
 - Howler.js (audio): https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js
 - Anime.js (animation): https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js
-- Confetti: https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js`;
+- Confetti: https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js
+- Vue 3 (reactive UI): https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js
+- Faker.js (mock data): https://cdnjs.cloudflare.com/ajax/libs/Faker/5.5.3/faker.min.js  → faker.name.findName(), faker.commerce.price()
+- Day.js (date formatting): https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/dayjs.min.js  → dayjs().format('MMM D, YYYY')
+- Kaboom.js (simple 2D games): https://unpkg.com/kaboom@3000.1.17/dist/kaboom.js
+- Babylon.js (3D scenes): https://cdn.babylonjs.com/babylon.js
+- Numeral.js (number formatting): https://cdnjs.cloudflare.com/ajax/libs/numeral.js/2.0.6/numeral.min.js  → numeral(1234567).format('$0,0')
+CSS Frameworks:
+- Bulma CSS (UI framework, zero layout CSS needed): https://cdnjs.cloudflare.com/ajax/libs/bulma/0.9.4/css/bulma.min.css
+  → <link rel="stylesheet" href="..."> in <head>. Classes: button, card, columns, column, navbar, hero, section, table, tag, notification, progress
+- Animate.css (CSS animations): https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css  → class="animate__animated animate__fadeIn"`;
 }
 
 module.exports = { resolveCDNs, getCDNHint };

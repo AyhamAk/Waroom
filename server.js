@@ -6,15 +6,17 @@
 
 require('dotenv').config();
 const express = require('express');
+const http = require('http');
 const path = require('path');
 const fs = require('fs');
 
 const {
   live, setLive,
   LIVE_AGENTS, sleep,
-  emit, pushContext, pushMsg, stopAll,
+  emit, pushContext, pushMsg, stopAll, killBackend,
   callAgent, runPipeline, scheduleSide,
   addClient, removeClient,
+  loadLiveState,
 } = require('./pipeline');
 
 const { streamMessage, getModels } = require('./llm');
@@ -120,6 +122,28 @@ app.post('/api/run-agent', async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════
+   BACKEND PROXY — forwards /backend/* → localhost:3001
+   The generated backend runs on port 3001; the frontend
+   always calls /backend/... so the same origin is used.
+   ══════════════════════════════════════════════ */
+app.use('/backend', (req, res) => {
+  if (!live.backendPort) return res.status(503).json({ error: 'No backend running yet' });
+  const opts = {
+    hostname: 'localhost',
+    port: live.backendPort,
+    path: req.url,
+    method: req.method,
+    headers: { ...req.headers, host: `localhost:${live.backendPort}` },
+  };
+  const proxy = http.request(opts, proxyRes => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    proxyRes.pipe(res, { end: true });
+  });
+  proxy.on('error', () => res.status(502).json({ error: 'Backend unavailable' }));
+  req.pipe(proxy, { end: true });
+});
+
+/* ══════════════════════════════════════════════
    LIVE MODE: SSE + control endpoints
    ══════════════════════════════════════════════ */
 
@@ -215,9 +239,51 @@ app.post('/api/start-live', (req, res) => {
   })();
 });
 
+/* Resume a previous session after server restart */
+app.post('/api/resume-session', (req, res) => {
+  const { sessionId, apiKey } = req.body;
+  if (!sessionId || !apiKey) return res.status(400).json({ error: 'sessionId and apiKey required' });
+  const wsDir = path.join(__dirname, 'workspace', sessionId);
+  if (!fs.existsSync(wsDir)) return res.status(404).json({ error: 'Session workspace not found' });
+  const saved = loadLiveState(wsDir);
+  if (!saved) return res.status(404).json({ error: 'No saved state in this workspace' });
+
+  stopAll();
+  setLive({
+    running: true, paused: false, speed: 1,
+    brief: saved.brief, sessionId, workspaceDir: wsDir,
+    category: saved.category || 'tech-startup',
+    provider: saved.provider || 'anthropic',
+    apiKey,
+    agents: saved.agents || Object.keys(LIVE_AGENTS),
+    cycle: saved.cycle || 0,
+    pastPriorities: saved.pastPriorities || [],
+    featurePriority: saved.featurePriority || '',
+    tokens: saved.tokens || 0,
+    startTime: saved.startTime || Date.now(),
+    files: saved.files || [],
+    contexts: {}, timers: {},
+    clients: live.clients,
+    salesV: saved.salesV || 1,
+    msgCount: 0,
+    previewScreenshot: null, consoleErrors: [],
+  });
+
+  res.json({ ok: true, sessionId, cycle: saved.cycle, brief: saved.brief });
+
+  (async () => {
+    emit('live-start', { startTime: live.startTime });
+    pushMsg({ from: 'system', to: null, type: 'system',
+      message: `🔄 SESSION RESUMED — continuing from cycle ${saved.cycle}` });
+    Object.keys(LIVE_AGENTS).forEach(id => emit('agent-status', { agentId: id, status: 'idle' }));
+    runPipeline();
+  })();
+});
+
 /* Stop / new mission */
 app.post('/api/stop', (req, res) => {
   stopAll();
+  killBackend();
   live.running = false;
   live.workspaceDir = null;
   live.brief = '';
@@ -309,4 +375,7 @@ app.get('/api/files', (_req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`\n  WAR ROOM online → http://localhost:${PORT}\n`));
+app.listen(PORT, () => {
+  live.previewPort = PORT;
+  console.log(`\n  WAR ROOM online → http://localhost:${PORT}\n`);
+});

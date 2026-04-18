@@ -8,6 +8,7 @@ require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
 const vm = require('vm');
+const { spawn } = require('child_process');
 
 // Sucrase: real TypeScript → JavaScript transpiler (permanent TS fix)
 let sucraseTransform = null;
@@ -88,6 +89,11 @@ const LIVE_AGENTS = {
     color: '#80cbc4', maxTokens: 400,
     communicatesWith: ['lead-eng'],
   },
+  'backend-eng': {
+    name: 'Backend Engineer', abbr: 'BE', role: 'Backend Engineer',
+    color: '#a5d6a7', maxTokens: 6000,
+    communicatesWith: ['builder'],
+  },
   sales: {
     name: 'Sales Lead', abbr: 'SL', role: 'Sales Lead',
     color: '#f06292', maxTokens: 600,
@@ -137,6 +143,56 @@ function pushMsg(msg) {
 function stopAll() {
   Object.values(live.timers).forEach(t => clearTimeout(t));
   live.timers = {};
+}
+
+/* ── Backend child-process management ── */
+let _backendProc = null;
+
+function killBackend() {
+  if (_backendProc) { try { _backendProc.kill('SIGTERM'); } catch {} _backendProc = null; }
+  live.backendPort = null;
+}
+
+async function spawnBackend(wsDir) {
+  const apiDir    = path.join(wsDir, 'api');
+  const serverJs  = path.join(apiDir, 'server.js');
+  if (!fs.existsSync(serverJs)) return;
+  if (_backendProc) return; // already running
+
+  // Validate server.js before spawning — truncated files crash Node immediately
+  const serverCode = fs.readFileSync(serverJs, 'utf8');
+  const { valid, error } = validateJS(serverCode);
+  if (!valid) {
+    const healed = autoCloseJS(serverCode);
+    if (validateJS(healed).valid) {
+      fs.writeFileSync(serverJs, healed, 'utf8');
+      pushMsg({ from: 'system', to: null, type: 'system',
+        message: `🩹 api/server.js: auto-closed truncated braces before spawn` });
+    } else {
+      pushMsg({ from: 'system', to: null, type: 'system',
+        message: `⚠️ api/server.js has syntax errors (${error.slice(0, 80)}) — backend not spawned` });
+      return;
+    }
+  }
+
+  _backendProc = spawn('node', ['server.js'], {
+    cwd: apiDir,
+    env: { ...process.env, PORT: '3001' },
+    stdio: 'pipe',
+  });
+  _backendProc.stderr.on('data', d => {
+    const m = d.toString().trim();
+    if (m) console.error('[backend]', m);
+  });
+  _backendProc.on('exit', code => {
+    _backendProc = null;
+    live.backendPort = null;
+    if (live.running) pushMsg({ from: 'system', to: null, type: 'system', message: `⚠️ Backend exited (code ${code})` });
+  });
+  await sleep(800); // give node a moment to start
+  live.backendPort = 3001;
+  emit('backend-ready', { port: 3001 });
+  pushMsg({ from: 'system', to: null, type: 'system', message: `🚀 Real backend running on :3001 — APIs live` });
 }
 
 /* ── Post-build validator: auto-generate any missing required files ── */
@@ -249,6 +305,11 @@ async function runCSSSpecialist() {
   const apiKey   = live.apiKey   || process.env.ANTHROPIC_API_KEY;
   const model    = getModels(provider).smart;
 
+  // Snapshot the cycle and the builder's cycle-1 CSS BEFORE the async LLM call.
+  // If cycle 2 runs and appends new CSS while we're waiting, we'll merge rather than overwrite.
+  const cycleAtStart = live.cycle;
+  const cycle1BuilderCss = live._cycle1Css || '';
+
   const prompt = `You are an expert CSS engineer. Write a COMPLETE, production-quality stylesheet for this exact HTML page.
 
 PROJECT: ${live.brief}
@@ -286,7 +347,23 @@ Output ONLY plain CSS. No markdown code fences. No explanations. Start directly 
     let css = text.trim().replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '');
     if (!css || css.length < 200) return;
 
+    // Race-condition guard: if cycle advanced while we were waiting for the LLM,
+    // cycle 2 may have already appended new CSS rules to style.css. We must
+    // preserve those additions rather than overwriting them.
     const cssPath = path.join(live.workspaceDir, 'public/style.css');
+    if (live.cycle !== cycleAtStart && cycle1BuilderCss) {
+      const currentCss = fs.existsSync(cssPath) ? fs.readFileSync(cssPath, 'utf8') : '';
+      // Extract anything appended beyond the original cycle-1 builder CSS
+      const additions = currentCss.length > cycle1BuilderCss.length
+        ? currentCss.slice(cycle1BuilderCss.length).trim()
+        : '';
+      if (additions) {
+        css = css + '\n\n/* ── Cycle additions (preserved) ── */\n' + additions;
+        pushMsg({ from: 'system', to: null, type: 'system',
+          message: `🎨 CSS Specialist: cycle advanced during run — merged specialist + ${additions.split('\n').length} lines of new additions` });
+      }
+    }
+
     fs.writeFileSync(cssPath, css, 'utf8');
 
     const entry = { path: 'public/style.css', content: css, agentId: 'css-specialist', ts: Date.now(), lines: css.split('\n').length };
@@ -454,14 +531,109 @@ function updateFeaturesJson() {
         .map(m => m[1] || m[2]).filter(Boolean)
     )].slice(0, 40);
 
+    // Vue 3: methods written as methodName() {} inside the options object
+    const vueMethods = [...new Set(
+      [...allJs.matchAll(/^\s{2,}(\w+)\s*\([^)]*\)\s*\{/gm)]
+        .map(m => m[1])
+        .filter(n => !['data','computed','methods','mounted','created','watch','setup','beforeMount','beforeUnmount'].includes(n))
+    )];
+
     const stateMatch = allJs.match(/const\s+state\s*=\s*\{([^}]*)\}/s);
     const stateKeys = stateMatch
       ? [...new Set([...stateMatch[1].matchAll(/(\w+)\s*:/g)].map(m => m[1]))].slice(0, 20)
       : [];
 
+    // Vue 3: state keys from data() { return { ... } }
+    const dataReturnMatch = allJs.match(/data\s*\(\s*\)\s*\{[\s\S]*?return\s*\{([^{}]+)\}/s);
+    const vueDataKeys = dataReturnMatch
+      ? [...new Set([...dataReturnMatch[1].matchAll(/(\w+)\s*:/g)].map(m => m[1]))].slice(0, 20)
+      : [];
+
+    const allFunctions = [...new Set([...functions, ...vueMethods])].slice(0, 40);
+    const allStateKeys = vueDataKeys.length ? vueDataKeys : stateKeys;
+
     const featPath = path.join(live.workspaceDir, 'docs/features.json');
-    fs.writeFileSync(featPath, JSON.stringify({ cycle: live.cycle || 0, functions, stateKeys }, null, 2), 'utf8');
+    fs.writeFileSync(featPath, JSON.stringify({ cycle: live.cycle || 0, functions: allFunctions, stateKeys: allStateKeys }, null, 2), 'utf8');
   } catch { /* non-critical */ }
+}
+
+/* ── Cross-cycle agent memory ──
+   Written after every cycle. Every agent reads this next cycle to prevent
+   regressions, avoid repeating decisions, and remember the tech stack. */
+function updateAgentMemory(cycle) {
+  if (!live.running || !live.workspaceDir) return;
+  try {
+    const read = p => { try { return fs.readFileSync(path.join(live.workspaceDir, p), 'utf8'); } catch { return ''; } };
+    const existing = (() => { try { return JSON.parse(read('docs/agent-memory.json')); } catch { return {}; } })();
+
+    const qaReport = read(`docs/qa-cycle${cycle}.md`);
+    // Clear open bugs after a FIX cycle — the builder addressed them this cycle.
+    // Stale bugs cause CEO to re-order fixes that are already done.
+    const wasFix = (live.featurePriority || '').trim().startsWith('FIX:');
+    const openBugs = wasFix ? [] : [...qaReport.matchAll(/^BROKEN:\s*(.+)/gm)].map(m => m[1].trim()).slice(0, 3);
+
+    const filesBuilt = live.files
+      .filter(f => f.path.startsWith('public/'))
+      .map(f => `${f.path}(${f.lines}L)`);
+
+    const allJs = live.files
+      .filter(f => f.path.endsWith('.js') && f.path.startsWith('public/'))
+      .map(f => f.content || '').join('\n');
+    const jsFunctions = [...new Set(
+      [...allJs.matchAll(/^(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:function|\([^)]*\)\s*=>))/gm)]
+        .map(m => m[1] || m[2]).filter(Boolean)
+    )].slice(0, 30);
+
+    const memory = {
+      lastCycle: cycle,
+      decisions: [...(existing.decisions || []).slice(-6), live.featurePriority].filter(Boolean),
+      filesBuilt,
+      jsFunctions,
+      openBugs,
+      hasBackend: !!live.backendPort,
+      category: live.category,
+    };
+    fs.writeFileSync(path.join(live.workspaceDir, 'docs/agent-memory.json'), JSON.stringify(memory, null, 2), 'utf8');
+  } catch { /* non-critical */ }
+}
+
+/* ── Persistent live state — survives server restarts ──
+   Saves/loads the minimal state needed to resume a session.
+   Clients/timers/preview buffers are intentionally excluded (not serializable). */
+function saveLiveState() {
+  if (!live.workspaceDir) return;
+  try {
+    const snapshot = {
+      cycle:           live.cycle || 0,
+      brief:           live.brief || '',
+      category:        live.category || 'tech-startup',
+      provider:        live.provider || 'anthropic',
+      pastPriorities:  live.pastPriorities || [],
+      featurePriority: live.featurePriority || '',
+      tokens:          live.tokens || 0,
+      startTime:       live.startTime || null,
+      agents:          live.agents || [],
+      backendPort:     live.backendPort || null,
+      salesV:          live.salesV || 1,
+      files: (live.files || []).map(f => ({ path: f.path, lines: f.lines, ts: f.ts, agentId: f.agentId })),
+    };
+    fs.writeFileSync(path.join(live.workspaceDir, 'docs/live-state.json'), JSON.stringify(snapshot, null, 2), 'utf8');
+  } catch { /* non-critical */ }
+}
+
+function loadLiveState(wsDir) {
+  try {
+    const raw = fs.readFileSync(path.join(wsDir, 'docs/live-state.json'), 'utf8');
+    const s = JSON.parse(raw);
+    // Re-hydrate files from disk (content not stored in snapshot to keep it small)
+    const files = (s.files || []).map(f => {
+      try {
+        const content = fs.readFileSync(path.join(wsDir, f.path), 'utf8');
+        return { ...f, content };
+      } catch { return null; }
+    }).filter(Boolean);
+    return { ...s, files };
+  } catch { return null; }
 }
 
 /* ── Core agent call (returns promise) ── */
@@ -484,10 +656,12 @@ async function callAgent(agentId, _retries = 0) {
     const apiKey   = live.apiKey   || process.env.ANTHROPIC_API_KEY;
     const models   = getModels(provider);
     const model    = usesSmart ? models.smart : models.fast;
-    // Builder gets more tokens in FIX mode and on cycle 1 (complete app build)
+    // Builder gets more tokens in FIX mode; cycle 1 is split into 2 focused phases
     const isFix    = agentId === 'builder' && (live.featurePriority || '').trim().startsWith('FIX:');
     const maxTokens = agentId === 'builder'
-      ? (isFix ? 16000 : (live.cycle === 1 ? 16000 : 10000))
+      ? (isFix ? 16000 : live.cycle === 1
+          ? (live._buildPhase === 1 ? 12000 : 16000)   // phase 1 = HTML+CSS; phase 2 = JS
+          : 10000)
       : agent.maxTokens;
 
     // Tool 3: Web search for CEO and lead-eng before building prompt
@@ -506,7 +680,7 @@ async function callAgent(agentId, _retries = 0) {
         const prevReport = live.lastVisionReport ? `\nPREVIOUS CYCLE REPORT: ${live.lastVisionReport.slice(0, 200)}` : '';
         const { text: visionText, inputTokens: vi, outputTokens: vo } = await createMessage({
           provider, apiKey,
-          model: models.smart,   // smart model — needs to understand what it's seeing
+          model: models.fast,    // vision description only — fast model is sufficient
           maxTokens: 700,
           messages: [{
             role: 'user',
@@ -539,12 +713,36 @@ One sentence per point. Be brutally specific — not "content area empty" but "t
     // Builder gets the screenshot directly so it can see what to fix.
     const useScreenshot = agentId === 'builder';
     const fullPrompt = visionNote + promptText;
-    const userContent = (useScreenshot && live.previewScreenshot)
-      ? [
-          { type: 'image', source: { type: 'base64', media_type: live.previewScreenshot.mediaType, data: live.previewScreenshot.base64 } },
-          { type: 'text', text: `This is a screenshot of the current website state.\n\n${fullPrompt}` },
-        ]
-      : fullPrompt;
+
+    // Anthropic prompt caching: split builder prompt on \x00CACHE_SPLIT\x00 marker.
+    // Static suffix (CDN hints + stack rules) is marked cacheable — saves ~1300 tokens
+    // on continuation calls and repeated builds of the same category.
+    const CACHE_MARKER = '\x00CACHE_SPLIT\x00\n';
+    const cacheIdx = (provider === 'anthropic' && agentId === 'builder')
+      ? fullPrompt.indexOf(CACHE_MARKER) : -1;
+
+    let userContent;
+    if (cacheIdx !== -1) {
+      const dynamicPart = fullPrompt.slice(0, cacheIdx);
+      const staticPart  = fullPrompt.slice(cacheIdx + CACHE_MARKER.length);
+      const textBlocks = [
+        { type: 'text', text: dynamicPart },
+        { type: 'text', text: staticPart, cache_control: { type: 'ephemeral' } },
+      ];
+      userContent = (useScreenshot && live.previewScreenshot)
+        ? [
+            { type: 'image', source: { type: 'base64', media_type: live.previewScreenshot.mediaType, data: live.previewScreenshot.base64 } },
+            ...textBlocks,
+          ]
+        : textBlocks;
+    } else {
+      userContent = (useScreenshot && live.previewScreenshot)
+        ? [
+            { type: 'image', source: { type: 'base64', media_type: live.previewScreenshot.mediaType, data: live.previewScreenshot.base64 } },
+            { type: 'text', text: `This is a screenshot of the current website state.\n\n${fullPrompt}` },
+          ]
+        : fullPrompt;
+    }
 
     let { text: raw, inputTokens, outputTokens } = await createMessage({
       provider, apiKey, model,
@@ -657,7 +855,7 @@ One sentence per point. Be brutally specific — not "content area empty" but "t
         }
 
         // Tool 1: JS Syntax Validator — validate and auto-retry on syntax error
-        if (agentId === 'builder' && filename.endsWith('.js')) {
+        if ((agentId === 'builder' || agentId === 'backend-eng') && filename.endsWith('.js')) {
           const { valid, error } = validateJS(filecontent);
           if (!valid) {
             pushMsg({ from: 'system', to: null, type: 'system',
@@ -698,12 +896,18 @@ One sentence per point. Be brutally specific — not "content area empty" but "t
         const isUpdate  = (live.cycle || 1) > 1 && isBuilder && fs.existsSync(fullPath);
         const isFixCycle = (live.featurePriority || '').trim().startsWith('FIX:');
 
-        // HTML: inject new sections before </body>
+        // HTML: inject new sections — Vue apps inject inside #app div, vanilla before </body>
         if (isUpdate && safePath.startsWith('public/') && safePath.endsWith('.html') && !isFixCycle) {
           const existing = fs.readFileSync(fullPath, 'utf8');
-          filecontent = existing.includes('</body>')
-            ? existing.replace(/<\/body>/i, '\n' + filecontent + '\n</body>')
-            : existing + '\n' + filecontent;
+          const isVueApp = (live.category || 'tech-startup') !== 'game-studio';
+          const endAppMarker = '<!-- END APP -->';
+          if (isVueApp && existing.includes(endAppMarker)) {
+            filecontent = existing.replace(endAppMarker, filecontent + '\n' + endAppMarker);
+          } else {
+            filecontent = existing.includes('</body>')
+              ? existing.replace(/<\/body>/i, '\n' + filecontent + '\n</body>')
+              : existing + '\n' + filecontent;
+          }
         }
         // CSS: append new rules — coexistence and override are safe for stylesheets
         if (isUpdate && safePath === 'public/style.css' && !isFixCycle) {
@@ -718,12 +922,16 @@ One sentence per point. Be brutally specific — not "content area empty" but "t
         const entry = { path: safePath, content: filecontent, agentId, ts: Date.now(), lines };
         const idx = live.files.findIndex(f => f.path === safePath);
         if (idx >= 0) live.files[idx] = entry; else live.files.push(entry);
+        // Track cycle-1 builder CSS so CSS Specialist can detect/merge any cycle-2 additions
+        if (safePath === 'public/style.css' && (live.cycle || 1) === 1 && agentId === 'builder') {
+          live._cycle1Css = filecontent;
+        }
         if (agentId === 'sales') live.salesV++;
         if (safePath === 'docs/feature-priority.md') {
           // CEO sometimes outputs verbose markdown instead of one line.
-          // Extract just the operational decision line (FIX:/NEW PAGE:/SECTION:)
-          // so that isFix detection, pastPriorities, and lastPriority all work correctly.
-          const decisionMatch = filecontent.match(/^(FIX:|NEW PAGE:|SECTION:).+/m);
+          // Extract just the operational decision line (FIX:/NEW PAGE:/SECTION:/DONE:)
+          // so that isFix detection, DONE detection, pastPriorities all work correctly.
+          const decisionMatch = filecontent.match(/^(FIX:|NEW PAGE:|SECTION:|DONE:).+/m);
           if (decisionMatch) filecontent = decisionMatch[0].trim();
           live.pastPriorities.push(filecontent.slice(0, 120));
           live.featurePriority = filecontent.trim();
@@ -734,6 +942,55 @@ One sentence per point. Be brutally specific — not "content area empty" but "t
           message: `📄 \`${safePath}\` — ${lines} lines · ${task}` });
         pushContext(agentId, agentId, `produced ${safePath}: ${task}`);
         didWork = true;
+      } else if (type === 'append') {
+        const filename    = block.match(/^FILENAME\s*:\s*(.+)/im)?.[1]?.trim();
+        const task        = block.match(/^TASK\s*:\s*(.+)/im)?.[1]?.trim() || '';
+        const sepM        = block.match(/\n-{3,}\r?\n/);
+        let filecontent = sepM ? block.slice(block.indexOf(sepM[0]) + sepM[0].length).trim() : '';
+        if (!filename || !filecontent) continue;
+
+        // Skip trivially empty JS blocks
+        if (filename.endsWith('.js')) {
+          const meaningful = filecontent.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/[\s;]/g, '');
+          if (!meaningful) continue;
+        }
+
+        const safePath = filename.replace(/\.\./g, '').replace(/[^a-zA-Z0-9.\-_/]/g, '-');
+        const fullPath = path.join(live.workspaceDir, safePath);
+
+        // For JS files: prepend existing file so we write the merged result
+        if (safePath.endsWith('.js') && fs.existsSync(fullPath)) {
+          const existing = fs.readFileSync(fullPath, 'utf8');
+          filecontent = existing + '\n\n/* ── Cycle ' + live.cycle + ' addition ── */\n' + filecontent;
+        }
+
+        // Validate merged JS
+        if (agentId === 'builder' && safePath.endsWith('.js')) {
+          const { valid, error } = validateJS(filecontent);
+          if (!valid) {
+            const closed = autoCloseJS(filecontent);
+            if (validateJS(closed).valid) {
+              filecontent = closed;
+            } else {
+              pushMsg({ from: 'system', to: null, type: 'system',
+                message: `⚠️ Append to ${safePath} invalid — skipping: ${error.slice(0, 80)}` });
+              continue;
+            }
+          }
+        }
+
+        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        fs.writeFileSync(fullPath, filecontent, 'utf8');
+        const lines = filecontent.split('\n').length;
+        const entry = { path: safePath, content: filecontent, agentId, ts: Date.now(), lines };
+        const idx = live.files.findIndex(f => f.path === safePath);
+        if (idx >= 0) live.files[idx] = entry; else live.files.push(entry);
+        emit('new-file', entry);
+        if (safePath.startsWith('public/')) emit('preview-refresh', { path: safePath, ts: Date.now() });
+        pushMsg({ from: agentId, to: null, type: 'file',
+          message: `📄 \`${safePath}\` — ${lines} lines · ${task} (appended)` });
+        pushContext(agentId, agentId, `appended to ${safePath}: ${task}`);
+        didWork = true;
       }
     }
 
@@ -742,17 +999,102 @@ One sentence per point. Be brutally specific — not "content area empty" but "t
       live.consoleErrors = [];
     }
 
-    // Cycle 1: run CSS Specialist to generate pixel-perfect CSS from actual HTML.
-    // The builder writes HTML and CSS in the same pass — CSS always gets less attention.
-    // The specialist gets its own dedicated 10K-token call focused purely on styling.
-    if (agentId === 'builder' && live.cycle === 1 && didWork) {
-      await runCSSSpecialist();
-    }
-
     // Update feature inventory after every builder run so the next cycle knows
     // exactly which functions and state keys to preserve in its full rewrite.
     if (agentId === 'builder' && didWork) {
       updateFeaturesJson();
+
+      // Micro-correction loop: test immediately after build and fix errors within the same cycle.
+      // Runs up to 3 fix passes before handing off to the next cycle.
+      if (live.previewPort) {
+        try {
+          const { testBuild } = require('./tools/tester');
+          const url = `http://localhost:${live.previewPort}/preview-now`;
+
+          for (let microPass = 0; microPass <= 3; microPass++) {
+            const { errors, screenshot, skipped } = await testBuild(url);
+            if (skipped) break;
+            if (screenshot) live.previewScreenshot = { base64: screenshot.toString('base64'), mediaType: 'image/jpeg' };
+
+            if (errors.length === 0) {
+              live.consoleErrors = [];
+              pushMsg({ from: 'system', to: null, type: 'system', message: `✅ AUTO-TEST: no console errors` });
+              break;
+            }
+
+            live.consoleErrors = errors;
+            if (microPass === 0) {
+              pushMsg({ from: 'system', to: null, type: 'system',
+                message: `🔍 AUTO-TEST: ${errors.length} error(s) found:\n${errors.slice(0, 3).map((e, i) => `  ${i + 1}. ${e}`).join('\n')}` });
+            }
+            if (microPass >= 3) break;
+
+            pushMsg({ from: 'system', to: null, type: 'system',
+              message: `🔧 FIX PASS ${microPass + 1}/3 — fixing ${errors.length} console error(s)` });
+
+            const rdFile = p => { try { return fs.readFileSync(path.join(live.workspaceDir, p), 'utf8'); } catch { return ''; } };
+            const currentAppJs  = rdFile('public/app.js');
+            const currentDataJs = rdFile('public/data.js');
+            const currentHtml   = rdFile('public/index.html');
+            const htmlIds = [...currentHtml.matchAll(/id=["']([^"']+)["']/gi)].map(m => m[1]).join(', ');
+
+            const fixPrompt = `BROWSER CONSOLE ERRORS after your last build:\n${errors.map((e, i) => `${i + 1}. ${e}`).join('\n')}\n\nCURRENT FILES ON DISK:\n=== public/app.js ===\n${currentAppJs}\n${currentDataJs ? `\n=== public/data.js ===\n${currentDataJs}\n` : ''}ELEMENT IDs in index.html: ${htmlIds}\n\nFix ALL errors. Output the COMPLETE corrected file(s):\nTYPE: work\nFILENAME: public/app.js\nTASK: fix console errors pass ${microPass + 1}\n---\n[complete corrected app.js]${currentDataJs ? '\n\n===FILE===\nTYPE: work\nFILENAME: public/data.js\nTASK: fix\n---\n[complete corrected data.js if also needed]' : ''}`;
+
+            const fixContent = screenshot
+              ? [{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: screenshot.toString('base64') } },
+                 { type: 'text', text: fixPrompt }]
+              : fixPrompt;
+
+            try {
+              const { text: fixRaw, inputTokens: fi, outputTokens: fo } = await createMessage({
+                provider, apiKey, model, maxTokens: 12000,
+                messages: [{ role: 'user', content: fixContent }],
+              });
+              live.tokens += fi + fo;
+              emit('token-update', { total: live.tokens, delta: fi + fo });
+
+              const allowedPaths = new Set(['public/app.js', 'public/data.js', 'public/index.html', 'public/style.css']);
+              for (const fixBlock of fixRaw.split(/\n?={3,}FILE={3,}\n?/i)) {
+                if (fixBlock.match(/^TYPE\s*:\s*(\w+)/im)?.[1]?.toLowerCase() !== 'work') continue;
+                const fname = fixBlock.match(/^FILENAME\s*:\s*(.+)/im)?.[1]?.trim();
+                const sepM  = fixBlock.match(/\n-{3,}\r?\n/);
+                let fc = sepM ? fixBlock.slice(fixBlock.indexOf(sepM[0]) + sepM[0].length).trim() : '';
+                if (!fname || !fc) continue;
+                const sp = fname.replace(/\.\./g, '').replace(/[^a-zA-Z0-9.\-_/]/g, '-');
+                if (!allowedPaths.has(sp)) continue;
+
+                if (sp.endsWith('.js')) {
+                  const { valid } = validateJS(fc);
+                  if (!valid) {
+                    const healed = autoCloseJS(fc);
+                    if (validateJS(healed).valid) fc = healed; else continue;
+                  }
+                }
+                if (sp.endsWith('.html')) fc = resolveCDNs(fc);
+
+                const fp = path.join(live.workspaceDir, sp);
+                fs.mkdirSync(path.dirname(fp), { recursive: true });
+                fs.writeFileSync(fp, fc, 'utf8');
+                const lines = fc.split('\n').length;
+                const entry = { path: sp, content: fc, agentId: 'builder', ts: Date.now(), lines };
+                const idx2 = live.files.findIndex(f => f.path === sp);
+                if (idx2 >= 0) live.files[idx2] = entry; else live.files.push(entry);
+                emit('new-file', entry);
+                if (sp.startsWith('public/')) emit('preview-refresh', { path: sp, ts: Date.now() });
+                pushMsg({ from: 'builder', to: null, type: 'file',
+                  message: `📄 \`${sp}\` — ${lines} lines · fix pass ${microPass + 1}` });
+              }
+            } catch (fixErr) {
+              pushMsg({ from: 'system', to: null, type: 'system',
+                message: `⚠️ Fix pass ${microPass + 1} failed: ${fixErr.message?.slice(0, 80)}` });
+              break;
+            }
+          }
+        } catch (testerErr) {
+          pushMsg({ from: 'system', to: null, type: 'system',
+            message: `⚠️ Auto-tester unavailable: ${testerErr.message?.slice(0, 80)} — install playwright for self-correction` });
+        }
+      }
     }
 
     if (!didWork) {
@@ -810,11 +1152,18 @@ One sentence per point. Be brutally specific — not "content area empty" but "t
       }
     }
   } catch (err) {
-    const maxRetries = agentId === 'builder' ? 2 : 1;
-    if (isConnectionError(err) && _retries < maxRetries) {
-      const wait = ((_retries + 1) * 5000);
+    const is429 = err.status === 429
+      || (err.message || '').toLowerCase().includes('rate_limit')
+      || (err.message || '').toLowerCase().includes('rate limit')
+      || (err.message || '').includes('429');
+    const isRetryable = isConnectionError(err) || is429;
+    const maxRetries = agentId === 'builder' ? 3 : 2;
+    if (isRetryable && _retries < maxRetries) {
+      // Rate limit: wait 60s. Connection error: exponential backoff 5s/10s/15s.
+      const wait = is429 ? 60000 : ((_retries + 1) * 5000);
+      const reason = is429 ? 'rate limit — waiting 60s' : `connection error — retry ${_retries + 1}/${maxRetries} in ${wait / 1000}s`;
       pushMsg({ from: 'system', to: null, type: 'system',
-        message: `⚠️ ${LIVE_AGENTS[agentId]?.name || agentId} connection error — retry ${_retries + 1}/${maxRetries} in ${wait / 1000}s` });
+        message: `⚠️ ${LIVE_AGENTS[agentId]?.name || agentId} ${reason}` });
       await sleep(wait);
       return callAgent(agentId, _retries + 1);
     }
@@ -860,22 +1209,64 @@ async function runPipeline() {
     if (!live.running) return;
     live.customerFeedback = '';
     live._feedbackPending = false;
+  } else if (cycle === 1) {
+    // SOLO BUILD — split into 2 focused phases so each call is fast and precise
+    live._soloMode = true;
+    live.previewScreenshot = null;
+
+    // Phase 1: HTML structure + complete CSS (~8K tokens, fast)
+    // User sees the visual shell appear immediately
+    live._buildPhase = 1;
+    pushMsg({ from: 'system', to: null, type: 'system',
+      message: `⚡ CYCLE 1 — PHASE 1/2: building HTML structure + CSS...` });
+    while (live.paused) await sleep(500);
+    await callAgent('builder');
+    if (!live.running) return;
+
+    // Phase 2: data.js + app.js — reads the ACTUAL HTML IDs just written (~12K tokens)
+    // No ID guessing = no "getElementById returns null" bugs
+    live._buildPhase = 2;
+    pushMsg({ from: 'system', to: null, type: 'system',
+      message: `⚡ CYCLE 1 — PHASE 2/2: building JavaScript logic...` });
+    while (live.paused) await sleep(500);
+    await callAgent('builder');
+    if (!live.running) return;
+    live._buildPhase = null;
   } else {
-    // Request a fresh screenshot from the browser and wait up to 6s before CEO runs
-    live.previewScreenshot = null;  // clear stale screenshot
-    emit('screenshot-request', {});
-    pushMsg({ from: 'system', to: null, type: 'system', message: `📸 CEO reviewing site screenshot...` });
-    for (let i = 0; i < 12; i++) {
-      if (live.previewScreenshot) break;
-      await sleep(500);
+    // IMPROVEMENT LOOP (cycle 2+): CEO assesses, builder appends targeted feature
+    if (!live.previewScreenshot) {
+      pushMsg({ from: 'system', to: null, type: 'system', message: `📸 CEO reviewing site screenshot...` });
+      for (let i = 0; i < 4; i++) {   // max 2s
+        if (live.previewScreenshot) break;
+        await sleep(500);
+      }
     }
 
     await runStep('ceo');
     if (!live.running) return;
 
-    pushMsg({ from: 'system', to: null, type: 'system', message: `⚙️ LEAD ENG + DESIGNER planning in parallel...` });
-    await Promise.all([callAgent('lead-eng'), callAgent('designer')]);
-    if (!live.running) return;
+    // DONE detection: CEO signals the app is complete — stop the pipeline
+    if ((live.featurePriority || '').trim().startsWith('DONE:')) {
+      pushMsg({ from: 'system', to: null, type: 'system',
+        message: `🎉 BUILD COMPLETE — ${live.featurePriority}` });
+      emit('build-complete', { cycle, brief: live.brief });
+      live.running = false;
+      return;
+    }
+
+    // Backend Engineer: runs on cycle 2 for tech-startup categories,
+    // only when no backend has been spawned yet this session.
+    const needsBackend = cycle === 2
+      && !live.backendPort
+      && !fs.existsSync(path.join(live.workspaceDir || '', 'api/server.js'))
+      && (!live.category || live.category === 'tech-startup');
+    if (needsBackend) {
+      pushMsg({ from: 'system', to: null, type: 'system', message: `⚙️ BACKEND ENG designing real API...` });
+      await callAgent('backend-eng');
+      if (!live.running) return;
+      // Spawn the backend now so the builder can reference real /backend/... endpoints
+      await spawnBackend(live.workspaceDir);
+    }
 
     while (live.paused) await sleep(500);
     pushMsg({ from: 'system', to: null, type: 'system', message: `⚙️ CYCLE ${cycle} · DEVELOPER building...` });
@@ -888,18 +1279,30 @@ async function runPipeline() {
   // Safety net: auto-generate any required files the builder missed
   await ensureRequiredFiles();
 
-  // CSS coverage check: if style.css doesn't cover HTML selectors, auto-patch it
-  await ensureCSSCoverage();
+  // Also try to spawn backend if api/server.js appeared this cycle (cycle 2+ safety net)
+  if (live.workspaceDir && !live.backendPort) await spawnBackend(live.workspaceDir);
 
-  if (live.agents?.includes('qa')) {
-    await runStep('qa');
-  }
+  // Persist cross-cycle memory so agents remember decisions and avoid regressions
+  updateAgentMemory(cycle);
+  // Save live state to disk — allows partial recovery if server restarts mid-session
+  saveLiveState();
 
-  // If new feedback arrived mid-cycle, skip the gap and act immediately
-  const gap = live._feedbackPending ? 0 : Math.round(10000 / live.speed);
+  // QA + CSS coverage run async — they don't block the next cycle start
+  const postCycleWork = Promise.all([
+    live.agents?.includes('qa') ? runStep('qa') : Promise.resolve(),
+    ensureCSSCoverage(),
+  ]);
+  postCycleWork.catch(() => {}); // fire-and-forget
+
+  // Pre-capture screenshot during the gap so CEO has it instantly next cycle
+  emit('screenshot-request', {});
+  live.previewScreenshot = null;
+
+  // Gap reduced to 2s — screenshot arrives quickly; QA/CSS run in background
+  const gap = live._feedbackPending ? 0 : Math.round(2000 / live.speed);
   const msg = live._feedbackPending
     ? `✅ CYCLE ${cycle} COMPLETE — feedback detected, acting immediately`
-    : `✅ CYCLE ${cycle} COMPLETE — next round in 10s`;
+    : `✅ CYCLE ${cycle} COMPLETE — next in ~2s`;
   pushMsg({ from: 'system', to: null, type: 'system', message: msg });
 
   live.timers['pipeline'] = setTimeout(runPipeline, gap);
@@ -945,9 +1348,11 @@ module.exports = {
   pushContext,
   pushMsg,
   stopAll,
+  killBackend,
   callAgent,
   runPipeline,
   scheduleSide,
   addClient,
   removeClient,
+  loadLiveState,
 };

@@ -3,3 +3,5 @@ node_modules/
 workspace/
 *.log
 .DS_Store
+.claude/settings.local.json
+.claude/context-snapshot.md
