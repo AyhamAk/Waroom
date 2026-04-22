@@ -5,3 +5,8 @@ workspace/
 .DS_Store
 .claude/settings.local.json
 .claude/context-snapshot.md
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
