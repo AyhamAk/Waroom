@@ -1819,6 +1819,9 @@ body {
 .ctrl-btn.paused { border-color: var(--amber); color: var(--amber); }
 
 .crisis-btn { border-color: var(--red) !important; color: var(--red) !important; }
+.continue-btn { border-color: #00e676 !important; color: #00e676 !important; margin-left: .5rem; animation: pulse-green 2s ease-in-out infinite; }
+.continue-btn:hover { background: rgba(0,230,118,0.15) !important; }
+@keyframes pulse-green { 0%,100%{opacity:1} 50%{opacity:.55} }
 .new-mission-live-btn { border-color: #555 !important; color: #888 !important; margin-left: .5rem; }
 .new-mission-live-btn:hover { border-color: var(--accent) !important; color: var(--accent) !important; }
 .crisis-btn:hover { background: rgba(255,23,68,0.1) !important; }

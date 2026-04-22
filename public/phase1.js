@@ -124,7 +124,7 @@ function buildModeSelector() {
         <div class="mode-badge mode-badge--free">NO COST</div>
         <input class="mode-key-input" id="key-gemini" type="password"
           placeholder="Paste Gemini API key..."
-          autocomplete="off" spellcheck="false" />
+          autocomplete="new-password" spellcheck="false" />
         <div class="mode-hint">Free key → <span class="mode-link" onclick="window.open('https://aistudio.google.com/app/apikey')">aistudio.google.com</span></div>
       </div>
       <div class="mode-card" data-mode="anthropic">
@@ -136,7 +136,7 @@ function buildModeSelector() {
         <div class="mode-badge mode-badge--pro">FULL POWER</div>
         <input class="mode-key-input" id="key-anthropic" type="password"
           placeholder="Paste Anthropic API key..."
-          autocomplete="off" spellcheck="false" />
+          autocomplete="new-password" spellcheck="false" />
         <div class="mode-hint">Get key → <span class="mode-link" onclick="window.open('https://console.anthropic.com/')">console.anthropic.com</span></div>
       </div>
     </div>`;
@@ -182,5 +182,4 @@ $deployBtn.addEventListener('click', () => {
   if (!state.brief || !state.selectedAgents.length) return;
   startMission();
 });
-$newMissionBtn.addEventListener('click', () => resetToPhase1());
 $goLiveBtn.addEventListener('click', () => startLiveMode());

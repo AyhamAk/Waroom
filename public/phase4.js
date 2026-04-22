@@ -86,20 +86,43 @@ $modalClose.addEventListener('click', closeModal);
 
 /* ── New Mission — stop server session then go home ── */
 function stopAndReset() {
-  // Kill iframe immediately so its internal reload timer stops
   const $iframe = document.getElementById('preview-iframe');
   if ($iframe) $iframe.src = 'about:blank';
 
-  // Stop session timer
   if (liveState.timerInterval) { clearInterval(liveState.timerInterval); liveState.timerInterval = null; }
-
-  // Close SSE so no more agent-status events trigger screenshots
   if (liveState.sse) { liveState.sse.close(); liveState.sse = null; }
+
+  // Reset live state so next session starts clean
+  liveState.tokens = 0;
+  liveState.files = {};
+  liveState.msgCount = 0;
+  liveState.startTime = null;
+  liveState.paused = false;
+  liveState.speed = 1;
+
+  // Clear live UI
+  if ($commFeed)   $commFeed.innerHTML = '';
+  if ($fileTree)   $fileTree.innerHTML = '';
+  if ($liveTokens) $liveTokens.textContent = '0';
+  if ($sessionTimer) $sessionTimer.textContent = '00:00';
+  if ($msgCount)   $msgCount.textContent = '0 messages';
 
   fetch('/api/stop', { method: 'POST' }).finally(() => resetToPhase1());
 }
 document.getElementById('new-mission-btn').addEventListener('click', stopAndReset);
 document.getElementById('new-mission-live-btn').addEventListener('click', stopAndReset);
+
+/* ── Continue — resume last session from current cycle ── */
+async function continueSession() {
+  const $btn = document.getElementById('continue-btn');
+  if ($btn) { $btn.disabled = true; $btn.textContent = 'RESUMING...'; }
+  await fetch('/api/continue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey: state.apiKey }),
+  });
+  if ($btn) { $btn.disabled = false; $btn.textContent = 'CONTINUE'; }
+}
 
 /* ── Reconnect to an already-running session (after page refresh) ── */
 function reconnectLiveMode(status) {
@@ -216,6 +239,11 @@ function connectSSE() {
   es.addEventListener('customer-feedback', e => {
     const { message } = JSON.parse(e.data);
     showCustomerBanner(message);
+  });
+
+  es.addEventListener('stopped', () => {
+    const $btn = document.getElementById('continue-btn');
+    if ($btn) $btn.hidden = false;
   });
 
   es.onerror = () => {
