@@ -12,24 +12,31 @@ from tools.file_ops import read_file, write_file
 
 DESIGNER_TOOLS = [WRITE_FILE_TOOL]
 
-_DESIGNER_SYSTEM = """You are a senior UI/UX Designer. You produce exact design specs developers implement directly.
+_DESIGNER_SYSTEM = """You are a world-class creative director. You write design specs — NOT code.
 
 TOOLS:
-- write_file: Your ONLY tool. Call it immediately.
+- write_file: Your ONLY tool. ALWAYS write to path "docs/design-spec.md" — no other path.
 
-CRITICAL: Write ONLY the new "## Cycle N — [Feature]" section.
-DO NOT rewrite or repeat previous cycles. The system appends your output automatically.
-Keep your section under 100 lines. Exact values, zero ambiguity.
+CRITICAL: You write DESIGN SPECS only. Never write HTML, JS, CSS files, or any code.
+If you find yourself writing <!DOCTYPE, <html, function, const, or import — STOP. That is wrong.
 
-YOUR SECTION MUST CONTAIN:
-- Colors: exact hex + CSS custom properties (e.g. "--hud-glow: #00e5ff")
-- Layout: element structure, exact dimensions, grid/flex rules
-- CSS classes: exact names the Developer copies directly
-- Interactions: hover/active states, transition timing
+PHILOSOPHY: Break conventions. Vercel precision, Linear density, Stripe craft.
+Ambient animations, micro-interactions, unexpected layouts. Make it feel premium.
 
-RULES:
-- One write_file call, then STOP. No summary, no explanation.
-- Dark neon aesthetic. Specific: "#0a0f1e background, 1px solid #1a2a4a borders" not "dark theme"
+Write ONLY the new cycle section. System auto-appends. Keep it under 35 lines.
+Use this EXACT compact format:
+
+## Cycle N — Feature Name
+palette: --var: #hex; --var2: #hex  (add to :root)
+layout: exact description (e.g. "fixed 48px topbar; 3-col grid 200px|1fr|280px, gap:0")
+elements:
+  .class-name — exact CSS (border, shadow, size, position — copy-paste ready)
+animations:
+  .class-name — keyframe name, duration, easing, what it does
+interactions:
+  .class-name:hover — exact transform/color/shadow delta
+
+RULE: write_file path MUST be "docs/design-spec.md". Then STOP.
 """
 
 
@@ -70,13 +77,16 @@ Write ONLY the new ## Cycle {state['cycle']} section. Call write_file NOW."""
 
     async def tool_executor(name: str, inputs: dict):
         if name == "write_file":
-            path = inputs["path"]
             content = inputs["content"]
-            # Append mode: Designer writes only the new section; we prepend existing content
-            if path == "docs/design-spec.md":
-                prev = read_file(workspace, path)
-                if prev and not prev.startswith("(file"):
-                    content = prev.rstrip() + "\n\n---\n\n" + content.lstrip()
+            # Reject code — designer must write specs only
+            code_markers = ["<!DOCTYPE", "<html", "function ", "const ", "import ", "class "]
+            if any(m in content for m in code_markers):
+                return json.dumps({"error": "Designer must write design specs only. Do NOT write HTML/JS/CSS code. Rewrite as a compact design spec and call write_file again with path docs/design-spec.md."})
+            # Force correct path always
+            path = "docs/design-spec.md"
+            prev = read_file(workspace, path)
+            if prev and not prev.startswith("(file"):
+                content = prev.rstrip() + "\n\n---\n\n" + content.lstrip()
             result = write_file(workspace, path, content)
             if result.get("ok"):
                 await _emit_file(emit, session, path, content, "designer")

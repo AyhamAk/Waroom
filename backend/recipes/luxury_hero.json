@@ -1,0 +1,32 @@
+{
+  "name": "luxury_hero",
+  "match": {
+    "styles": ["luxury"],
+    "keywords": ["watch", "jewelry", "perfume", "whisky", "wine", "champagne", "chocolate", "pen", "gold", "premium", "diamond", "ring"]
+  },
+  "style": "luxury",
+  "scaffold": true,
+  "render": {"engine": "EEVEE_NEXT", "samples": 96, "resolution": [1280, 720], "fps": 24, "frames": 120},
+  "filmic": {"look": "High Contrast", "exposure": 0.2},
+  "world": {"hdri_style": "luxury", "hdri_resolution": "2k", "strength": 1.0},
+  "materials": [
+    {"id": "hero_mat", "preset": "gold"}
+  ],
+  "objects": [
+    {"id": "product_body", "primitive": "CYLINDER", "location": [0, 0, 0.3],
+     "scale": [0.35, 0.35, 0.6], "material": "hero_mat",
+     "subdivision": 2, "shade_smooth": true,
+     "bevel": {"width": 0.015, "segments": 4}}
+  ],
+  "camera": {
+    "location": [3.5, -6.5, 2.8], "look_at": [0, 0, 0.4],
+    "focal_mm": 85, "dof_distance": 7.5, "fstop": 1.8,
+    "track": "product_body"
+  },
+  "animation": {
+    "camera_orbit": {"radius": 7.5, "height": 2.8, "start_deg": -60, "end_deg": 60, "frames": 120, "target": [0, 0, 0.4]},
+    "scale_in_reveal": {"obj": "product_body", "start_frame": 1, "end_frame": 25},
+    "bezier_all": true
+  },
+  "compositor": {"preset": "luxury"}
+}

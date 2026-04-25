@@ -1,0 +1,31 @@
+{
+  "name": "cinematic_reveal",
+  "match": {
+    "styles": ["cinematic"],
+    "keywords": ["reveal", "dramatic", "moody", "atmospheric", "luxury car", "sneaker", "limited edition", "concept"]
+  },
+  "style": "cinematic",
+  "scaffold": true,
+  "render": {"engine": "EEVEE_NEXT", "samples": 80, "resolution": [1280, 720], "fps": 24, "frames": 120},
+  "filmic": {"look": "High Contrast", "exposure": -0.3},
+  "world": {"color": "#050508", "strength": 1.0},
+  "materials": [
+    {"id": "hero_mat", "preset": "car_paint_black"}
+  ],
+  "objects": [
+    {"id": "product_body", "primitive": "UV_SPHERE", "location": [0, 0, 0.8],
+     "scale": [0.9, 0.9, 0.9], "material": "hero_mat",
+     "subdivision": 3, "shade_smooth": true}
+  ],
+  "camera": {
+    "location": [4.5, -7.5, 2.2], "look_at": [0, 0, 0.8],
+    "focal_mm": 35, "dof_distance": 8.5, "fstop": 2.0,
+    "track": "product_body"
+  },
+  "animation": {
+    "camera_orbit": {"radius": 8.0, "height": 2.8, "start_deg": -120, "end_deg": 0, "frames": 120, "target": [0, 0, 0.8]},
+    "scale_in_reveal": {"obj": "product_body", "start_frame": 1, "end_frame": 30},
+    "bezier_all": true
+  },
+  "compositor": {"preset": "cinematic"}
+}

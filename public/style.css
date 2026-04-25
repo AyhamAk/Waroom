@@ -151,7 +151,7 @@ body {
 .phase {
   display: none;
   min-height: 100vh;
-  padding-top: 56px;
+  padding-top: 92px;
 }
 .phase.active { display: block; }
 
@@ -1819,6 +1819,8 @@ body {
 .ctrl-btn.paused { border-color: var(--amber); color: var(--amber); }
 
 .crisis-btn { border-color: var(--red) !important; color: var(--red) !important; }
+.continue-feedback-input { background: #0d1420; border: 1px solid #00e676; color: #e0e0e0; padding: .3rem .6rem; font-size: .72rem; font-family: inherit; border-radius: 4px; width: 180px; margin-left: .5rem; outline: none; }
+.continue-feedback-input::placeholder { color: #2d4a3a; }
 .continue-btn { border-color: #00e676 !important; color: #00e676 !important; margin-left: .5rem; animation: pulse-green 2s ease-in-out infinite; }
 .continue-btn:hover { background: rgba(0,230,118,0.15) !important; }
 @keyframes pulse-green { 0%,100%{opacity:1} 50%{opacity:.55} }
@@ -2535,3 +2537,652 @@ body {
 }
 
 .modal-pre code { background: transparent !important; padding: 0 !important; font-size: inherit; }
+
+/* ══════════════════════════════════════════════
+   STUDIO MODE TABS — topbar
+   ══════════════════════════════════════════════ */
+
+.studio-subbar {
+  position: fixed;
+  top: 56px;
+  left: 0;
+  right: 0;
+  height: 36px;
+  background: rgba(7,9,15,0.98);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99;
+}
+
+.studio-mode-tabs {
+  display: flex;
+  gap: 0;
+  align-items: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.studio-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 1.1rem;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, box-shadow 0.2s;
+  white-space: nowrap;
+  position: relative;
+}
+
+.studio-tab:last-child { border-right: none; }
+
+.studio-tab:hover:not(.active) {
+  color: var(--text);
+  background: rgba(255,255,255,0.03);
+}
+
+.studio-tab.active {
+  color: var(--accent);
+  background: var(--accent-glow);
+  box-shadow: inset 0 -2px 0 var(--accent), 0 0 12px rgba(0,230,118,0.12);
+  border-bottom: 2px solid var(--accent);
+}
+
+.studio-tab-icon { font-size: 0.85rem; }
+.studio-tab-label { font-family: 'Bebas Neue', sans-serif; font-size: 0.88rem; letter-spacing: 0.14em; }
+
+/* ══════════════════════════════════════════════
+   BLENDER STUDIO SECTION
+   ══════════════════════════════════════════════ */
+
+#blender-studio {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 56px);
+  margin-top: 92px;
+  overflow: hidden;
+}
+
+.blender-studio-section[hidden] { display: none !important; }
+
+/* ─── Controls bar override for blender ─── */
+.blender-controls {
+  border-bottom: 1px solid var(--border);
+}
+
+.bs-mode-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.65rem;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+  padding: 4px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  background: var(--accent-glow);
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 0.9rem;
+}
+
+.bs-mode-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: blink 1.2s step-end infinite;
+  flex-shrink: 0;
+}
+
+.bs-render-status {
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  color: var(--amber);
+  border: 1px solid rgba(255,171,0,0.35);
+  border-radius: 2px;
+  padding: 3px 10px;
+  background: rgba(255,171,0,0.06);
+  transition: color 0.3s, border-color 0.3s, background 0.3s;
+}
+
+.bs-render-status.active {
+  color: var(--accent);
+  border-color: rgba(0,230,118,0.35);
+  background: var(--accent-glow);
+  animation: blink 0.9s step-end infinite;
+}
+
+.bs-render-status.complete {
+  color: #64b5f6;
+  border-color: rgba(100,181,246,0.35);
+  background: rgba(100,181,246,0.06);
+  animation: none;
+}
+
+/* ─── Left column ─── */
+.bs-left {
+  width: 42%;
+  flex-direction: column;
+}
+
+/* ─── Input panel ─── */
+.bs-input-panel {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--border);
+  overflow-y: auto;
+  max-height: 60%;
+}
+
+.bs-input-panel::-webkit-scrollbar { width: 3px; }
+.bs-input-panel::-webkit-scrollbar-thumb { background: var(--border-lit); }
+
+.bs-form {
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.bs-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.bs-textarea {
+  resize: none;
+  min-height: 64px;
+}
+
+/* ─── Drop zone ─── */
+.bs-dropzone {
+  position: relative;
+  border: 1px dashed var(--border-lit);
+  border-radius: 4px;
+  background: rgba(0,230,118,0.015);
+  cursor: pointer;
+  transition: border-color 0.25s, background 0.25s, box-shadow 0.25s;
+  outline: none;
+  min-height: 72px;
+  overflow: hidden;
+}
+
+.bs-dropzone:hover,
+.bs-dropzone:focus,
+.bs-dropzone.dragover {
+  border-color: var(--accent);
+  background: rgba(0,230,118,0.04);
+  box-shadow: 0 0 16px rgba(0,230,118,0.1), inset 0 0 20px rgba(0,230,118,0.03);
+}
+
+.bs-dropzone-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  gap: 0.25rem;
+  pointer-events: none;
+}
+
+.bs-drop-icon {
+  font-size: 1.5rem;
+  color: var(--text-dim);
+  margin-bottom: 0.1rem;
+  transition: color 0.2s, transform 0.2s;
+}
+
+.bs-dropzone:hover .bs-drop-icon,
+.bs-dropzone.dragover .bs-drop-icon {
+  color: var(--accent);
+  transform: translateY(-3px);
+}
+
+.bs-drop-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.bs-drop-sub {
+  font-size: 0.58rem;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+}
+
+.bs-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  max-height: 160px;
+  background: var(--bg-card);
+  border-radius: 3px;
+  padding: 4px;
+}
+
+.bs-thumb-clear {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(255,23,68,0.85);
+  border: none;
+  border-radius: 50%;
+  color: white;
+  width: 22px;
+  height: 22px;
+  font-size: 0.7rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: background 0.15s, transform 0.15s;
+  z-index: 2;
+}
+
+.bs-thumb-clear:hover {
+  background: var(--red);
+  transform: scale(1.15);
+}
+
+/* ─── Style picker ─── */
+.bs-style-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+}
+
+.bs-style-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.65rem 0.4rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+  outline: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.bs-style-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--accent-glow);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.bs-style-card:hover:not(.selected) {
+  border-color: var(--border-lit);
+  background: var(--bg-card2);
+}
+
+.bs-style-card.selected {
+  border-color: var(--accent);
+  background: var(--bg-card2);
+  box-shadow: 0 0 14px rgba(0,230,118,0.15), 0 0 0 1px rgba(0,230,118,0.2);
+}
+
+.bs-style-card.selected::before { opacity: 1; }
+
+.bs-style-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+  position: relative;
+}
+
+.bs-style-name {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  color: var(--text);
+  transition: color 0.2s;
+  position: relative;
+}
+
+.bs-style-card.selected .bs-style-name { color: var(--accent); }
+
+.bs-style-sub {
+  font-size: 0.5rem;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  text-align: center;
+  line-height: 1.3;
+  position: relative;
+}
+
+/* Deploy button tweak for Blender Studio */
+.bs-deploy-btn {
+  font-size: 1.2rem;
+  padding: 0.9rem;
+}
+
+/* ─── Agent desks (Blender) ─── */
+.bs-agents-panel {
+  flex: 1;
+  border-right: none;
+  overflow: hidden;
+}
+
+.bs-agent-desks {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+  flex: 1;
+  height: calc(100% - 36px);
+  padding: 0.5rem 0.75rem;
+}
+
+.bs-agent-desks::-webkit-scrollbar { width: 3px; }
+.bs-agent-desks::-webkit-scrollbar-thumb { background: var(--border-lit); }
+
+/* ─── Blender agent rows ─── */
+.bs-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  transition: border-color 0.3s, background 0.3s, box-shadow 0.3s;
+  position: relative;
+  overflow: hidden;
+}
+
+.bs-agent-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--bs-agent-color, var(--accent));
+  opacity: 0.4;
+  transition: opacity 0.3s, width 0.3s;
+}
+
+.bs-agent-row.status-thinking {
+  border-color: rgba(255,171,0,0.25);
+  background: rgba(255,171,0,0.04);
+}
+
+.bs-agent-row.status-working {
+  border-color: rgba(0,230,118,0.25);
+  background: rgba(0,230,118,0.04);
+  box-shadow: 0 0 12px rgba(0,230,118,0.06);
+}
+
+.bs-agent-row.status-working::before { opacity: 1; width: 3px; }
+
+.bs-agent-row.status-thinking::before {
+  background: var(--amber);
+  opacity: 0.8;
+}
+
+.bs-agent-icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+  width: 32px;
+  text-align: center;
+}
+
+.bs-agent-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.bs-agent-name {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  color: var(--bs-agent-color, var(--accent));
+  line-height: 1.1;
+  margin-bottom: 1px;
+}
+
+.bs-agent-role {
+  font-size: 0.56rem;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.3rem;
+}
+
+.bs-agent-msg {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.bs-agent-badge {
+  font-size: 0.5rem;
+  letter-spacing: 0.14em;
+  padding: 2px 6px;
+  border-radius: 2px;
+  border: 1px solid var(--text-muted);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: color 0.25s, border-color 0.25s, background 0.25s;
+}
+
+.bs-agent-row.status-thinking .bs-agent-badge {
+  color: var(--amber);
+  border-color: var(--amber);
+  animation: blink 1s step-end infinite;
+}
+
+.bs-agent-row.status-working .bs-agent-badge {
+  color: var(--accent);
+  border-color: var(--accent);
+  animation: blink 0.75s step-end infinite;
+}
+
+.bs-agent-typing {
+  display: none;
+  align-items: center;
+  gap: 3px;
+  margin-left: 2px;
+}
+
+.bs-agent-typing span {
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: typingPop 1.1s ease-in-out infinite;
+}
+
+.bs-agent-typing span:nth-child(2) { animation-delay: 0.18s; }
+.bs-agent-typing span:nth-child(3) { animation-delay: 0.36s; }
+
+.bs-agent-row.status-thinking .bs-agent-typing,
+.bs-agent-row.status-working .bs-agent-typing { display: flex; }
+
+/* ─── Preview strip ─── */
+/* ── Blender Agent Log Panel ── */
+.bs-log-panel {
+  width: 260px;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+  overflow: hidden;
+}
+.bs-log-feed {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+}
+.bs-log-entry {
+  padding: 3px 6px;
+  border-radius: 2px;
+  line-height: 1.4;
+  word-break: break-word;
+  color: var(--muted);
+}
+.bs-log-sys  { color: #4a5568; font-style: italic; }
+.bs-log-tool { color: var(--accent); }
+.bs-log-msg  { color: #a0aec0; }
+.bs-log-err  { color: #fc8181; }
+.bs-log-ok   { color: var(--accent); font-weight: 600; }
+
+.bs-preview-strip {
+  /* border is handled by .live-left's border-right */
+}
+
+.bs-preview-wrap {
+  flex: 1;
+  position: relative;
+  background: var(--bg);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+/* ─── Idle state ─── */
+.bs-idle-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.bs-idle-state[hidden] { display: none !important; }
+
+.bs-idle-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,230,118,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,230,118,0.04) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, black 10%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, black 10%, transparent 80%);
+  animation: gridpulse 4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.bs-idle-text {
+  position: relative;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bs-idle-icon {
+  font-size: 2.5rem;
+  animation: bsIdlePulse 1.6s ease-in-out infinite;
+  line-height: 1;
+}
+
+@keyframes bsIdlePulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.95); }
+  50%       { opacity: 1;   transform: scale(1.05); }
+}
+
+.bs-idle-msg {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 1.3rem;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  text-shadow: 0 0 24px rgba(0,230,118,0.5);
+  animation: bsIdlePulse 1.6s ease-in-out infinite;
+}
+
+.bs-idle-sub {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+}
+
+/* ─── Render image ─── */
+.bs-render-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  animation: slideIn 0.4s ease-out;
+}
+
+/* ─── Video ready overlay ─── */
+.bs-video-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(7,9,15,0.88);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  z-index: 10;
+  backdrop-filter: blur(6px);
+  animation: fadeIn 0.5s ease;
+}
+
+.bs-video-overlay[hidden] { display: none !important; }
+
+.bs-video-icon {
+  font-size: 3.5rem;
+  line-height: 1;
+  text-shadow: 0 0 30px rgba(0,230,118,0.6);
+}
+
+.bs-video-label {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 2rem;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  text-shadow: 0 0 30px rgba(0,230,118,0.5);
+}
+
+.bs-dl-btn {
+  width: auto;
+  padding: 0.75rem 2.5rem;
+  font-size: 1.1rem;
+  text-decoration: none;
+  display: inline-flex;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 900px) {
+  .studio-mode-tabs { position: static; transform: none; }
+  #topbar { flex-wrap: wrap; height: auto; padding: 0.5rem 1rem; gap: 0.5rem; }
+  .bs-style-grid { grid-template-columns: repeat(2, 1fr); }
+  .bs-left { width: 100%; }
+  #blender-studio .live-main { flex-direction: column; }
+}

@@ -6,41 +6,37 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from agents.base import WRITE_FILE_TOOL, WEB_SEARCH_TOOL, run_agent_with_tools
+from agents.base import WRITE_FILE_TOOL, run_agent_with_tools
 from graph.state import CompanyState
 from tools.file_ops import read_file, write_file
-from tools.search import web_search
 
 
-CEO_TOOLS = [WEB_SEARCH_TOOL, WRITE_FILE_TOOL]
+CEO_TOOLS = [WRITE_FILE_TOOL]
 
 _CEO_SYSTEM = """You are the CEO of a fast-moving startup. You set direction, you make calls.
 
 TOOLS:
-- web_search: Research competitors and best practices (cycle 1 only, max 1 search)
-- read_file: See what the team built (qa-report, roadmap, feature-priority)
-- write_file: Record your decisions
+- write_file: Record your decisions (your ONLY tool)
 
-WORKFLOW — follow this exactly, in order:
-1. (Cycle 1 only) Call web_search ONCE for "{brief} best features"
-   - If result says "Rate limited" or "error" → skip, use your own knowledge, DO NOT retry
-2. Read docs/qa-report.md (if cycle > 1)
-3. Write docs/feature-priority.md with ONE decision
-4. (Cycle 1 only) Write docs/product-roadmap.md with 6-8 milestones
+All context is already in the message. Do NOT try to use any other tool.
 
-DECISION FORMAT in docs/feature-priority.md — pick exactly one:
+WORKFLOW:
+1. Write docs/feature-priority.md with ONE decision
+2. (Cycle 1 only) Also write docs/product-roadmap.md with 6-8 milestones
+3. STOP immediately after writing
+
+DECISION FORMAT — pick exactly one:
   NEW FEATURE: [name] — [one specific sentence]
-  FIX: [what's broken] — [how to fix it exactly]
-  DONE: [reason] — only when product is complete with no QA blockers AND public/index.html exists
+  FIX: [what's broken] — [exactly how to fix it]
+  DONE: [reason] — only when QA verdict is GOOD AND public/index.html exists
 
-CRITICAL RULES:
-- Max 1 web search per cycle. If it fails → move on immediately, never retry.
+RULES:
 - Never repeat last cycle's decision.
-- Be specific: "drum sequencer with 16-step grid" not "add music features".
-- If QA report is MISSING (cycle > 1) → write FIX: decision — assume build is broken.
-- If public/index.html is MISSING (cycle > 1) → write FIX: decision — the product is not deliverable.
-- DONE is only valid when: QA verdict is GOOD AND public/index.html exists AND no open blockers.
-- After writing the files, stop immediately.
+- Specific: "16-step drum grid with Web Audio" not "add music features".
+- If QA report MISSING (cycle > 1) → FIX decision, assume broken.
+- If public/index.html MISSING (cycle > 1) → FIX decision.
+- If CUSTOMER FEEDBACK exists → make it the priority for this cycle.
+- DONE only when: QA=GOOD AND public/index.html exists AND no blockers.
 """
 
 
@@ -54,8 +50,12 @@ async def ceo_node(state: CompanyState, config: dict) -> dict:
     await emit("agent-status", {"agentId": "ceo", "status": "thinking"})
     await _push_sys(emit, f"🎯 CEO — cycle {cycle} starting")
 
-    qa_report = read_file(workspace, "docs/qa-report.md")
-    roadmap   = read_file(workspace, "docs/product-roadmap.md")
+    qa_report  = read_file(workspace, "docs/qa-report.md")
+    roadmap    = read_file(workspace, "docs/product-roadmap.md")
+    feedback   = read_file(workspace, "docs/customer-feedback.md")
+    # Clear feedback after reading so it only applies to this cycle
+    if feedback and not feedback.startswith("(file"):
+        write_file(workspace, "docs/customer-feedback.md", "")
     past      = state.get("past_decisions", [])
     past_ctx  = "\n".join(f"  • {d}" for d in past[-5:]) if past else "  (none yet)"
 
@@ -84,11 +84,15 @@ async def ceo_node(state: CompanyState, config: dict) -> dict:
             "broken code that nobody can see. DO NOT write NEW FEATURE."
         )
 
+    feedback_section = ""
+    if feedback and not feedback.startswith("(file"):
+        feedback_section = f"\n🎯 CUSTOMER FEEDBACK (HIGH PRIORITY — address this cycle):\n{feedback}\n"
+
     user_msg = f"""Company: {state['brief']}
 Type: {state['company_type']}
 Cycle: {cycle}
 {deliverable_warning}
-
+{feedback_section}
 PAST DECISIONS:
 {past_ctx}
 
@@ -100,11 +104,9 @@ ROADMAP:
 
 {f"FOUNDER MESSAGE: {state['founder_override']}" if state.get('founder_override') else ""}
 
-Now: {"search once for inspiration, then " if cycle == 1 else ""}write docs/feature-priority.md{"and docs/product-roadmap.md" if cycle == 1 else ""}, then stop."""
+Write docs/feature-priority.md{"and docs/product-roadmap.md" if cycle == 1 else ""}, then stop."""
 
     async def tool_executor(name: str, inputs: dict):
-        if name == "web_search":
-            return web_search(inputs["query"])
         if name == "write_file":
             result = write_file(workspace, inputs["path"], inputs["content"])
             if result.get("ok"):

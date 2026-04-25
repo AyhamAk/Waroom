@@ -4,6 +4,7 @@ Real agentic system: agents with tools, loops, code execution.
 Replaces server.js entirely. Run with: python main.py
 """
 import asyncio
+import base64
 import json
 import os
 import random
@@ -347,6 +348,7 @@ async def _run_graph(graph, initial_state: dict, config: dict):
 
 class ContinueRequest(BaseModel):
     apiKey: str
+    feedback: Optional[str] = None
 
 
 @app.post("/api/continue")
@@ -355,9 +357,14 @@ async def continue_session(body: ContinueRequest):
     from graph.graph import build_graph
     from tools.file_ops import read_file as _read_file
 
+    from tools.file_ops import write_file as _write_file
     ws_dir = _session.get("workspace_dir")
     if not ws_dir or not Path(ws_dir).exists():
         raise HTTPException(400, "No session to continue — workspace not found")
+
+    # Write feedback to file so CEO picks it up
+    if body.feedback and body.feedback.strip():
+        _write_file(ws_dir, "docs/customer-feedback.md", f"# Customer Feedback\n\n{body.feedback.strip()}\n")
 
     if _session.get("task") and not _session["task"].done():
         raise HTTPException(400, "Session already running")
@@ -414,7 +421,18 @@ async def continue_session(body: ContinueRequest):
 async def stop():
     if _session.get("task") and not _session["task"].done():
         _session["task"].cancel()
-    _session.update(running=False, workspace_dir=None, brief="")
+    # Preserve workspace_dir and brief so /api/continue works after stop
+    _session["running"] = False
+    await _emit("stopped", {})
+    return {"ok": True}
+
+
+@app.post("/api/reset")
+async def reset():
+    """Full reset — clears workspace and returns to phase 1."""
+    if _session.get("task") and not _session["task"].done():
+        _session["task"].cancel()
+    _session.update(running=False, workspace_dir=None, brief="", session_id=None)
     await _emit("stopped", {})
     return {"ok": True}
 
@@ -448,9 +466,14 @@ class MessageRequest(BaseModel):
 
 @app.post("/api/customer-feedback")
 async def customer_feedback(body: MessageRequest):
+    from tools.file_ops import write_file as _write_file
     text = body.message.strip()[:400]
     await _emit("customer-feedback", {"message": text})
     await _push_sys(f"👤 CUSTOMER: {text}", to="ceo")
+    # Write to workspace so CEO picks it up next cycle
+    ws = _session.get("workspace_dir")
+    if ws:
+        _write_file(ws, "docs/customer-feedback.md", f"# Customer Feedback\n\n{text}\n")
     return {"ok": True}
 
 
@@ -476,6 +499,212 @@ async def inject_crisis():
 @app.post("/api/console-errors")
 async def console_errors(body: dict):
     return {"ok": True}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BLENDER STUDIO PIPELINE
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Per-session state for the Blender pipeline (one active session at a time)
+_blender_session: dict = {
+    "running": False,
+    "session_id": None,
+    "workspace_dir": None,
+    "video_path": None,
+    "latest_render": None,
+    "tokens": 0,
+    "task": None,
+    "paused": False,
+}
+
+
+class BlenderStartRequest(BaseModel):
+    productDescription: str
+    style: Optional[str] = "commercial"
+    imageBase64: Optional[str] = None   # base64-encoded product image (PNG/JPEG)
+    apiKey: str
+
+
+@app.post("/api/blender/start")
+async def blender_start(body: BlenderStartRequest):
+    """Start the Blender Studio pipeline for a product."""
+    from graph.blender_graph import build_blender_graph
+    from graph.blender_state import make_blender_state
+
+    # Cancel any running blender task
+    if _blender_session.get("task") and not _blender_session["task"].done():
+        _blender_session["task"].cancel()
+        await asyncio.sleep(0.2)
+
+    session_id = f"blender_{int(time.time() * 1000)}"
+    ws_dir = str(WORKSPACE_DIR / session_id)
+
+    # Create workspace subdirectories
+    for subdir in ["docs", "renders", "frames", "logs"]:
+        Path(ws_dir, subdir).mkdir(parents=True, exist_ok=True)
+
+    # Save uploaded product image if provided
+    product_image_path: Optional[str] = None
+    if body.imageBase64:
+        try:
+            image_bytes = base64.b64decode(body.imageBase64)
+            product_image_path = str(Path(ws_dir) / "product_image.png")
+            with open(product_image_path, "wb") as f:
+                f.write(image_bytes)
+        except Exception as exc:
+            # Non-fatal — continue without product reference image
+            await _push_sys(f"Warning: could not save product image: {exc}")
+            product_image_path = None
+
+    _blender_session.update(
+        running=True,
+        paused=False,
+        session_id=session_id,
+        workspace_dir=ws_dir,
+        video_path=None,
+        latest_render=None,
+        tokens=0,
+        task=None,
+    )
+
+    graph = build_blender_graph()
+    initial_state = make_blender_state(
+        session_id=session_id,
+        workspace_dir=ws_dir,
+        api_key=body.apiKey,
+        product_description=body.productDescription,
+        style=body.style or "commercial",
+        product_image_path=product_image_path,
+    )
+
+    config = {
+        "recursion_limit": 100,
+        "configurable": {
+            "thread_id": session_id,
+            "emit": _emit,
+            "blender_session": _blender_session,
+        },
+    }
+
+    task = asyncio.create_task(_run_blender_graph(graph, initial_state, config))
+    _blender_session["task"] = task
+
+    return {"ok": True, "sessionId": session_id}
+
+
+async def _run_blender_graph(graph, initial_state: dict, config: dict):
+    """Run the Blender Studio LangGraph pipeline."""
+    try:
+        await _emit("blender-start", {
+            "sessionId": _blender_session["session_id"],
+            "product": initial_state.get("product_description", ""),
+            "style": initial_state.get("style", "commercial"),
+        })
+        await _push_sys("Blender Studio pipeline starting")
+
+        # Emit agent idle statuses
+        for aid in ["director-3d", "scene-architect-3d", "blender-artist-3d", "animator-3d", "renderer-3d"]:
+            await _emit("agent-status", {"agentId": aid, "status": "idle"})
+
+        async for chunk in graph.astream(initial_state, config=config):
+            for node_name, state_update in chunk.items():
+                if isinstance(state_update, dict):
+                    if "total_tokens" in state_update:
+                        _blender_session["tokens"] = state_update["total_tokens"]
+                        await _emit("token-update", {
+                            "delta": 0,
+                            "total": state_update["total_tokens"],
+                        })
+                    if "latest_render_path" in state_update and state_update["latest_render_path"]:
+                        _blender_session["latest_render"] = state_update["latest_render_path"]
+                    if "video_path" in state_update and state_update["video_path"]:
+                        _blender_session["video_path"] = state_update["video_path"]
+
+        await _push_sys("Blender Studio pipeline complete")
+        await _emit("blender-done", {
+            "sessionId": _blender_session["session_id"],
+            "videoPath": _blender_session.get("video_path"),
+        })
+
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        await _push_sys(f"Blender pipeline error: {str(exc)[:200]}")
+        await _emit("blender-error", {"message": str(exc)})
+    finally:
+        _blender_session["running"] = False
+
+
+@app.post("/api/blender/stop")
+async def blender_stop():
+    """Cancel the running Blender pipeline."""
+    if _blender_session.get("task") and not _blender_session["task"].done():
+        _blender_session["task"].cancel()
+    _blender_session["running"] = False
+    await _emit("blender-stopped", {"sessionId": _blender_session.get("session_id")})
+    return {"ok": True}
+
+
+@app.get("/api/blender/status")
+async def blender_status():
+    """Return the current Blender pipeline status."""
+    return {
+        "running": _blender_session["running"],
+        "sessionId": _blender_session["session_id"],
+        "tokens": _blender_session["tokens"],
+        "latestRender": _blender_session["latest_render"],
+        "videoPath": _blender_session["video_path"],
+    }
+
+
+@app.get("/api/blender/render/{session_id}/{filename}")
+async def blender_render_file(session_id: str, filename: str):
+    """
+    Serve a preview render PNG from the blender session workspace.
+    The Blender Artist emits URLs in this format.
+    """
+    # Security: only allow .png files, no path traversal
+    if ".." in filename or "/" in filename or not filename.endswith(".png"):
+        raise HTTPException(400, "Invalid filename")
+
+    ws = _blender_session.get("workspace_dir")
+    if not ws:
+        raise HTTPException(404, "No active blender session")
+
+    ws_path = Path(ws).resolve()
+    render_path = (ws_path / "renders" / filename).resolve()
+
+    # Path traversal check
+    if not str(render_path).startswith(str(ws_path)):
+        raise HTTPException(403, "Forbidden")
+
+    if not render_path.exists():
+        raise HTTPException(404, f"Render not found: {filename}")
+
+    return Response(content=render_path.read_bytes(), media_type="image/png")
+
+
+@app.get("/api/blender/video/{session_id}")
+async def blender_video(session_id: str):
+    """Serve the final output.mp4 for the blender session."""
+    ws = _blender_session.get("workspace_dir")
+    if not ws:
+        raise HTTPException(404, "No active blender session")
+
+    video_path = Path(ws) / "output.mp4"
+    if not video_path.exists():
+        raise HTTPException(404, "Video not ready yet")
+
+    return Response(
+        content=video_path.read_bytes(),
+        media_type="video/mp4",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"blender_output_{session_id}.mp4\"",
+            "Content-Length": str(video_path.stat().st_size),
+        },
+    )
 
 
 @app.post("/api/preview-screenshot")

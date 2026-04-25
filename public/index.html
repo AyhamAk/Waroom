@@ -20,6 +20,7 @@
       <span class="topbar-logo">WAR ROOM</span>
       <span class="topbar-sub">// AI COMMAND CENTER</span>
     </div>
+
     <div class="topbar-phases" id="phase-indicators">
       <span class="phase-indicator" id="pi-1">01 ASSEMBLE</span>
       <span class="phase-sep">›</span>
@@ -35,6 +36,20 @@
       <span class="budget-unit">TKN</span>
     </div>
   </header>
+
+  <!-- Studio Mode Sub-Bar -->
+  <div class="studio-subbar" id="studio-subbar">
+    <div class="studio-mode-tabs" id="studio-mode-tabs">
+      <button class="studio-tab active" id="tab-game-studio" onclick="switchStudioMode('game')">
+        <span class="studio-tab-icon">🎮</span>
+        <span class="studio-tab-label">GAME STUDIO</span>
+      </button>
+      <button class="studio-tab" id="tab-blender-studio" onclick="switchStudioMode('blender')">
+        <span class="studio-tab-icon">🎬</span>
+        <span class="studio-tab-label">BLENDER STUDIO</span>
+      </button>
+    </div>
+  </div>
 
   <!-- ═══════════ PHASE 1 — ASSEMBLE ═══════════ -->
   <section id="phase-1" class="phase active">
@@ -202,6 +217,7 @@
         <div class="live-stat"><span class="ls-label">TOKENS</span><span class="ls-val" id="live-tokens">0</span></div>
         <div class="live-stat"><span class="ls-label">UPTIME</span><span class="ls-val" id="session-timer">00:00:00</span></div>
         <div class="live-indicator"><span class="live-dot"></span>LIVE</div>
+        <input id="continue-feedback" class="continue-feedback-input" hidden placeholder="Feedback for agents..." />
         <button class="ctrl-btn continue-btn" id="continue-btn" hidden onclick="continueSession()" title="Resume agents from current cycle">▶ CONTINUE</button>
         <button class="ctrl-btn new-mission-live-btn" id="new-mission-live-btn" title="Stop and start a new mission">↺ NEW MISSION</button>
       </div>
@@ -249,6 +265,7 @@
           LIVE PREVIEW
           <div style="display:flex;gap:0.5rem;align-items:center;">
             <span class="preview-status" id="preview-status">waiting for agents...</span>
+            <button class="export-btn" id="preview-pause-btn" onclick="togglePreviewPause()">⏸ PAUSE PREVIEW</button>
             <a class="export-btn" id="preview-tab-btn" href="/preview-now" target="_blank">↗ OPEN IN TAB</a>
           </div>
         </div>
@@ -304,6 +321,167 @@
     </div>
   </div>
 
+  <!-- ═══════════ BLENDER STUDIO ═══════════ -->
+  <section id="blender-studio" class="blender-studio-section" hidden>
+
+    <!-- Controls Bar (mirrors Phase 4 live controls) -->
+    <div class="live-controls blender-controls">
+      <div class="ctrl-left">
+        <div class="bs-mode-badge">
+          <span class="bs-mode-dot"></span>
+          BLENDER STUDIO
+        </div>
+        <div id="bs-render-status" class="bs-render-status">STANDBY</div>
+      </div>
+      <div class="ctrl-right">
+        <div class="live-stat"><span class="ls-label">FRAME</span><span class="ls-val" id="bs-frame-counter">—</span></div>
+        <div class="live-stat"><span class="ls-label">UPTIME</span><span class="ls-val" id="bs-timer">00:00:00</span></div>
+        <button class="ctrl-btn new-mission-live-btn" id="bs-reset-btn" onclick="blenderStudioReset()">↺ RESET</button>
+      </div>
+    </div>
+
+    <!-- Main content: left input+agents | right render preview -->
+    <div class="live-main">
+
+      <!-- Left column: input form + agent status panels -->
+      <div class="live-left bs-left">
+        <div class="live-panels" style="flex-direction:column;">
+
+          <!-- Input Panel -->
+          <div class="live-panel bs-input-panel">
+            <div class="panel-title">SCENE BRIEF</div>
+            <div class="bs-form" id="bs-form">
+
+              <!-- API Key -->
+              <div class="bs-field-group">
+                <label class="field-label" for="bs-api-key">// ANTHROPIC API KEY</label>
+                <input
+                  id="bs-api-key"
+                  type="password"
+                  class="mode-key-input"
+                  placeholder="sk-ant-..."
+                  style="width:100%;margin-top:4px;"
+                  oninput="if(typeof state!=='undefined') state.apiKey=this.value.trim()"
+                />
+              </div>
+
+              <!-- Product Description -->
+              <div class="bs-field-group">
+                <label class="field-label" for="blender-description">// PRODUCT DESCRIPTION</label>
+                <div class="brief-wrap">
+                  <span class="brief-prompt">▶</span>
+                  <textarea
+                    id="blender-description"
+                    class="brief-textarea bs-textarea"
+                    placeholder="Describe your product... e.g. 'Sleek black wireless headphones with gold accents'"
+                    rows="3"
+                  ></textarea>
+                </div>
+              </div>
+
+              <!-- Image Upload -->
+              <div class="bs-field-group">
+                <label class="field-label">// DROP PRODUCT IMAGE (optional)</label>
+                <div class="bs-dropzone" id="bs-dropzone" role="button" tabindex="0" aria-label="Upload product image">
+                  <div class="bs-dropzone-inner" id="bs-dropzone-inner">
+                    <div class="bs-drop-icon">⬆</div>
+                    <div class="bs-drop-label">DROP IMAGE OR CLICK TO UPLOAD</div>
+                    <div class="bs-drop-sub">PNG, JPG, WEBP — max 10MB</div>
+                  </div>
+                  <img class="bs-thumb" id="bs-thumb" src="" alt="Product image preview" hidden />
+                  <button class="bs-thumb-clear" id="bs-thumb-clear" hidden aria-label="Remove image">✕</button>
+                  <input type="file" id="bs-file-input" accept="image/*" style="display:none" />
+                </div>
+              </div>
+
+              <!-- Style Picker -->
+              <div class="bs-field-group">
+                <label class="field-label">// RENDER STYLE</label>
+                <div class="bs-style-grid" id="bs-style-grid">
+                  <button class="bs-style-card selected" data-style="commercial" aria-pressed="true">
+                    <span class="bs-style-icon">🏢</span>
+                    <span class="bs-style-name">COMMERCIAL</span>
+                    <span class="bs-style-sub">clean white, hero shot</span>
+                  </button>
+                  <button class="bs-style-card" data-style="cinematic" aria-pressed="false">
+                    <span class="bs-style-icon">🎬</span>
+                    <span class="bs-style-name">CINEMATIC</span>
+                    <span class="bs-style-sub">moody, dramatic lighting</span>
+                  </button>
+                  <button class="bs-style-card" data-style="scifi" aria-pressed="false">
+                    <span class="bs-style-icon">🌌</span>
+                    <span class="bs-style-name">SCI-FI</span>
+                    <span class="bs-style-sub">neon environment</span>
+                  </button>
+                  <button class="bs-style-card" data-style="luxury" aria-pressed="false">
+                    <span class="bs-style-icon">💎</span>
+                    <span class="bs-style-name">LUXURY</span>
+                    <span class="bs-style-sub">dark marble, rim light</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Deploy Button -->
+              <button class="deploy-btn bs-deploy-btn" id="bs-deploy-btn" onclick="startBlenderStudio()">
+                <span class="deploy-icon">🎬</span> BUILD SCENE
+              </button>
+
+            </div>
+          </div>
+
+          <!-- Agent Status Panel -->
+          <div class="live-panel bs-agents-panel">
+            <div class="panel-title">3D PIPELINE AGENTS</div>
+            <div class="bs-agent-desks" id="bs-agent-desks">
+              <!-- Populated by blender-studio.js -->
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Middle: Agent Log -->
+      <div class="bs-log-panel" id="bs-log-panel">
+        <div class="panel-title">AGENT LOG</div>
+        <div class="bs-log-feed" id="bs-log-feed">
+          <div class="bs-log-entry bs-log-sys">Waiting for pipeline...</div>
+        </div>
+      </div>
+
+      <!-- Right: Render Preview -->
+      <div class="preview-strip bs-preview-strip" id="bs-preview-strip">
+        <div class="panel-title">
+          RENDER PREVIEW
+          <div style="display:flex;gap:0.5rem;align-items:center;">
+            <span class="preview-status" id="bs-preview-label">no render yet</span>
+            <a class="export-btn" id="bs-download-btn" href="#" download="warroom-render.mp4" hidden>⬇ DOWNLOAD MP4</a>
+          </div>
+        </div>
+        <div class="bs-preview-wrap" id="bs-preview-wrap">
+          <!-- Idle state (shown while waiting) -->
+          <div class="bs-idle-state" id="bs-idle-state">
+            <div class="bs-idle-grid" aria-hidden="true"></div>
+            <div class="bs-idle-text">
+              <div class="bs-idle-icon">⚡</div>
+              <div class="bs-idle-msg" id="bs-idle-msg">AGENTS BUILDING YOUR SCENE...</div>
+              <div class="bs-idle-sub">Submit a brief to begin rendering</div>
+            </div>
+          </div>
+          <!-- Render frame image (shown when frames arrive) -->
+          <img class="bs-render-img" id="bs-render-img" src="" alt="Latest render frame" hidden />
+          <!-- Video ready overlay -->
+          <div class="bs-video-overlay" id="bs-video-overlay" hidden>
+            <div class="bs-video-icon">🎬</div>
+            <div class="bs-video-label">SCENE COMPLETE</div>
+            <a class="deploy-btn bs-dl-btn" id="bs-video-dl-btn" href="#" download="warroom-scene.mp4">⬇ DOWNLOAD MP4</a>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </section>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -315,6 +493,7 @@
   <script src="phase2.js"></script>
   <script src="phase3.js"></script>
   <script src="phase4.js"></script>
+  <script src="blender-studio.js"></script>
   <script src="init.js"></script>
 </body>
 </html>

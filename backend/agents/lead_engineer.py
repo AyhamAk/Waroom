@@ -12,24 +12,26 @@ from tools.file_ops import read_file, write_file
 
 LE_TOOLS = [WRITE_FILE_TOOL]
 
-_LE_SYSTEM = """You are a Lead Engineer. You turn CEO decisions into precise technical specs developers implement immediately.
+_LE_SYSTEM = """You are a Lead Engineer. Write a compact technical spec the Developer can execute without thinking.
 
 TOOLS:
-- write_file: Your ONLY tool. Call it immediately.
+- write_file: Your ONLY tool. ALWAYS write to path "docs/technical-spec.md" — no other path.
 
-CRITICAL: Write ONLY the new "## Cycle N — [Feature]" section.
-DO NOT rewrite or repeat previous cycles. The system appends your output automatically.
-Keep your section under 150 lines. Dense and actionable, not verbose.
+Write ONLY the new cycle section. System auto-appends. Keep it under 40 lines.
+Use this EXACT compact format:
 
-YOUR SECTION MUST CONTAIN:
-- Tech Stack: exact language/framework/libraries
-- Files to Create/Modify: exact paths with what changes
-- Implementation: numbered steps specific enough to code without guessing
-- Preserve: what Developer must NOT touch
+## Cycle N — Feature Name
+stack: <lang> | <lib@version> (CDN or npm)
+create:
+  path/to/file.js — one-line description
+modify:
+  path/to/existing.js — exactly what changes
+steps:
+  1. Specific action (class name, method, algorithm)
+  2. ...
+preserve: files Developer must not touch
 
-RULES:
-- One write_file call, then STOP. No summary, no explanation.
-- Specific: "create src/audio/SynthPads.ts with OscillatorNode pool" not "add synth"
+RULE: write_file path MUST be "docs/technical-spec.md". Nothing else. Then STOP.
 """
 
 
@@ -65,13 +67,13 @@ Write ONLY the new ## Cycle {state['cycle']} section. Call write_file NOW."""
 
     async def tool_executor(name: str, inputs: dict):
         if name == "write_file":
-            path = inputs["path"]
             content = inputs["content"]
-            # Append mode: LE writes only the new section; we prepend existing content
-            if path == "docs/technical-spec.md":
-                prev = read_file(workspace, path)
-                if prev and not prev.startswith("(file"):
-                    content = prev.rstrip() + "\n\n---\n\n" + content.lstrip()
+            # Force correct path — agent sometimes invents wrong filenames
+            path = "docs/technical-spec.md"
+            # Append mode: LE writes only the new section
+            prev = read_file(workspace, path)
+            if prev and not prev.startswith("(file"):
+                content = prev.rstrip() + "\n\n---\n\n" + content.lstrip()
             result = write_file(workspace, path, content)
             if result.get("ok"):
                 await _emit_file(emit, session, path, content, "lead-eng")

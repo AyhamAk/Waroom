@@ -107,21 +107,32 @@ function stopAndReset() {
   if ($sessionTimer) $sessionTimer.textContent = '00:00';
   if ($msgCount)   $msgCount.textContent = '0 messages';
 
-  fetch('/api/stop', { method: 'POST' }).finally(() => resetToPhase1());
+  fetch('/api/reset', { method: 'POST' }).finally(() => resetToPhase1());
 }
 document.getElementById('new-mission-btn').addEventListener('click', stopAndReset);
 document.getElementById('new-mission-live-btn').addEventListener('click', stopAndReset);
 
-/* ── Continue — resume last session from current cycle ── */
+/* ── Continue — resume last session with optional feedback ── */
 async function continueSession() {
-  const $btn = document.getElementById('continue-btn');
+  const $btn      = document.getElementById('continue-btn');
+  const $feedback = document.getElementById('continue-feedback');
+  const feedback  = $feedback ? $feedback.value.trim() : '';
   if ($btn) { $btn.disabled = true; $btn.textContent = 'RESUMING...'; }
   await fetch('/api/continue', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ apiKey: state.apiKey }),
+    body: JSON.stringify({ apiKey: state.apiKey, feedback: feedback || null }),
   });
-  if ($btn) { $btn.disabled = false; $btn.textContent = 'CONTINUE'; }
+  if ($btn) { $btn.disabled = false; $btn.textContent = '▶ CONTINUE'; $btn.hidden = true; }
+  if ($feedback) { $feedback.value = ''; $feedback.hidden = true; }
+}
+
+/* ── Preview pause toggle ── */
+liveState.previewPaused = false;
+function togglePreviewPause() {
+  liveState.previewPaused = !liveState.previewPaused;
+  const $btn = document.getElementById('preview-pause-btn');
+  if ($btn) $btn.textContent = liveState.previewPaused ? '▶ RESUME PREVIEW' : '⏸ PAUSE PREVIEW';
 }
 
 /* ── Reconnect to an already-running session (after page refresh) ── */
@@ -242,8 +253,23 @@ function connectSSE() {
   });
 
   es.addEventListener('stopped', () => {
-    const $btn = document.getElementById('continue-btn');
-    if ($btn) $btn.hidden = false;
+    const $btn      = document.getElementById('continue-btn');
+    const $feedback = document.getElementById('continue-feedback');
+    if ($btn)      $btn.hidden = false;
+    if ($feedback) $feedback.hidden = false;
+  });
+
+  // ── Blender Studio events (forwarded from shared stream) ──
+  es.addEventListener('blender-frame', e => {
+    if (typeof handleBlenderFrame === 'function') handleBlenderFrame(e);
+  });
+
+  es.addEventListener('video-ready', e => {
+    if (typeof handleBlenderVideoReady === 'function') handleBlenderVideoReady(e);
+  });
+
+  es.addEventListener('blender-agent-status', e => {
+    if (typeof handleBlenderAgentStatus === 'function') handleBlenderAgentStatus(e);
   });
 
   es.onerror = () => {
@@ -532,10 +558,11 @@ function sendConsoleErrors(errors) {
 }
 
 function schedulePreviewReload() {
+  if (liveState.previewPaused) return;
   if (_previewRefreshTimer) clearTimeout(_previewRefreshTimer);
   _previewRefreshTimer = setTimeout(() => {
     _previewRefreshTimer = null;
-    reloadPreview();
+    if (!liveState.previewPaused) reloadPreview();
   }, 800);
 }
 

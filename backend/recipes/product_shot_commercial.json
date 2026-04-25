@@ -1,0 +1,34 @@
+{
+  "name": "product_shot_commercial",
+  "match": {
+    "styles": ["commercial"],
+    "keywords": ["product", "bottle", "box", "phone", "watch", "headphone", "earbud", "speaker", "gadget", "device", "cosmetic", "wireless", "case", "tool", "kitchen", "appliance", "camera", "lens", "can", "jar", "tube"],
+    "fallback": true
+  },
+  "style": "commercial",
+  "scaffold": true,
+  "render": {"engine": "EEVEE_NEXT", "samples": 64, "resolution": [1280, 720], "fps": 24, "frames": 120},
+  "filmic": {"look": "High Contrast", "exposure": 0.0},
+  "world": {"hdri_style": "commercial", "hdri_resolution": "2k", "strength": 0.9},
+  "materials": [
+    {"id": "hero_mat", "preset": "brushed_aluminum"}
+  ],
+  "objects": [
+    {"id": "product_body", "primitive": "CUBE", "location": [0, 0, 0.5],
+     "scale": [0.5, 0.5, 1.0], "material": "hero_mat",
+     "subdivision": 2, "shade_smooth": true,
+     "bevel": {"width": 0.02, "segments": 4}}
+  ],
+  "camera": {
+    "location": [5.0, -7.2, 3.0], "look_at": [0, 0, 0.5],
+    "focal_mm": 50, "dof_distance": 8.8, "fstop": 4.0,
+    "track": "product_body"
+  },
+  "animation": {
+    "camera_orbit": {"radius": 8.5, "height": 3.2, "start_deg": -90, "end_deg": 90, "frames": 120, "target": [0, 0, 0.5]},
+    "scale_in_reveal": {"obj": "product_body", "start_frame": 1, "end_frame": 18},
+    "product_float": {"obj": "product_body", "amplitude": 0.03, "frames": 120},
+    "bezier_all": true
+  },
+  "compositor": {"preset": "commercial"}
+}

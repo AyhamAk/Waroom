@@ -28,17 +28,50 @@ async def run_agent_with_tools(
     max_iterations: int = 25,
     session: dict | None = None,
     stop_after_write: list[str] | None = None,
+    user_message_content: list | None = None,
+    cache_system: bool = True,
+    cache_tools: bool = False,
 ) -> tuple[str, int]:
     """
     Run an agent in a tool-use loop until it stops calling tools or hits max_iterations.
     Returns (final_text, total_tokens_used).
     API calls run in thread executor — event loop stays free for SSE + signals.
+
+    user_message_content: if provided, used instead of user_message as the first
+      message content list (enables vision blocks for multimodal prompts).
+
+    cache_system: wrap the system prompt in a cache_control: ephemeral block so
+      Anthropic caches the prompt for 5 minutes. Cache reads cost 10% of normal
+      input tokens — huge savings for multi-iteration agents (Artist, QA).
+    cache_tools: also cache the tools array (useful when tool schemas are large
+      and stable). Requires min ~1024 tokens in the cached block.
     """
-    client = anthropic.Anthropic(api_key=api_key)
-    messages: list[dict] = [{"role": "user", "content": user_message}]
+    client = anthropic.Anthropic(api_key=api_key, timeout=120.0)
+    first_content = user_message_content if user_message_content is not None else user_message
+    messages: list[dict] = [{"role": "user", "content": first_content}]
     total_tokens = 0
     _msg_counter = [0]
     loop = asyncio.get_event_loop()
+
+    # Build system prompt with prompt caching enabled by default.
+    # Anthropic requires at least ~1024 tokens in a cached block for Sonnet; system
+    # prompts for Artist (~1900), Animator (~1200), and QA (~1500) qualify.
+    if cache_system and system_prompt:
+        system_param: list | str = [
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+    else:
+        system_param = system_prompt
+
+    # Optional: cache the tools array too (last tool gets the cache_control marker).
+    effective_tools = tools
+    if cache_tools and tools:
+        effective_tools = [dict(t) for t in tools]
+        effective_tools[-1]["cache_control"] = {"type": "ephemeral"}
 
     async def push(msg_type: str, text: str, to: str | None = None):
         _msg_counter[0] += 1
@@ -55,6 +88,11 @@ async def run_agent_with_tools(
             _log(session["workspace_dir"], agent_id, msg_type, text)
 
     for iteration in range(max_iterations):
+        # Honour pause: spin until unpaused (checked between iterations only)
+        if session is not None:
+            while session.get("paused"):
+                await asyncio.sleep(0.5)
+
         # Run the blocking Anthropic call in a thread — keeps event loop free
         try:
             msgs_snapshot = list(messages)
@@ -63,8 +101,8 @@ async def run_agent_with_tools(
                 lambda: client.messages.create(
                     model=model,
                     max_tokens=max_tokens,
-                    system=system_prompt,
-                    tools=tools,
+                    system=system_param,
+                    tools=effective_tools,
                     messages=msgs_snapshot,
                 ),
             )
@@ -74,13 +112,27 @@ async def run_agent_with_tools(
             await push("communicate", f"⚠️ API error: {str(exc)[:120]}")
             break
 
-        tokens_used = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
+        # Billed-input tokens differentiate cache writes (1.25x) from reads (0.1x).
+        # We bill cache_read at 10% since it's 90% cheaper than normal input.
+        usage = response.usage
+        raw_input = getattr(usage, "input_tokens", 0) or 0
+        cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+        output_tokens = getattr(usage, "output_tokens", 0) or 0
+        # Effective billable = raw_input + 1.25*cache_create + 0.1*cache_read + output
+        billable = raw_input + int(cache_create * 1.25) + int(cache_read * 0.1) + output_tokens
+        tokens_used = billable
         total_tokens += tokens_used
 
         # Update running total in session and emit immediately with real value
         if session is not None:
             session["tokens"] = session.get("tokens", 0) + tokens_used
             await emit("token-update", {"delta": tokens_used, "total": session["tokens"]})
+
+        # Surface cache efficiency on notable iterations
+        if cache_read > 500 and iteration < 3:
+            hit_rate = cache_read / max(cache_read + cache_create + raw_input, 1)
+            await push("communicate", f"cache_hit: {cache_read}t read ({hit_rate:.0%})")
 
         # Surface agent thinking text
         for block in response.content:
@@ -135,19 +187,30 @@ async def run_agent_with_tools(
 
                 try:
                     result = await tool_executor(block.name, block.input)
-                    result_str = str(result) if result is not None else "ok"
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
-                    result_str = f"TOOL ERROR: {exc}"
+                    result = f"TOOL ERROR: {exc}"
 
-                if len(result_str) > 20:
-                    await push("communicate", f"↩ {result_str[:300]}")
+                # tool_executor may return a plain string OR a list of content blocks
+                # (text + image) for vision-enabled feedback
+                if isinstance(result, list):
+                    tool_content = result
+                    text_preview = " ".join(
+                        b.get("text", "") for b in result if b.get("type") == "text"
+                    )
+                    if len(text_preview) > 20:
+                        await push("communicate", f"↩ {text_preview[:300]}")
+                else:
+                    result_str = str(result) if result is not None else "ok"
+                    if len(result_str) > 20:
+                        await push("communicate", f"↩ {result_str[:300]}")
+                    tool_content = result_str[:6000]
 
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
-                    "content": result_str[:6000],
+                    "content": tool_content,
                 })
 
                 # Stop immediately after writing a key file — no summary call needed

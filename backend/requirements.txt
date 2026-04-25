@@ -10,3 +10,8 @@ aiofiles==24.1.0
 duckduckgo-search==6.3.7
 google-generativeai==0.8.3
 httpx==0.27.2
+# Blender Studio pipeline optional dependencies
+# Install with: pip install mss Pillow pywin32
+mss>=9.0.1
+Pillow>=10.0.0
+pywin32>=306; sys_platform == "win32"

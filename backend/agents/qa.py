@@ -106,16 +106,19 @@ async def qa_node(state: CompanyState, config: dict) -> dict:
                              and not f["path"].startswith("logs/") and not f["path"].startswith("public/")})
         qa_system = _QA_SYSTEM_NPM
         max_iter = 10
+        proj_dir = project_dirs[0] if project_dirs else 'unknown'
+        has_modules = any(p.startswith(f"{proj_dir}/node_modules/") for p in file_paths)
+        install_note = "SKIP npm install (node_modules already exists)" if has_modules else "Run npm install first"
+
         user_msg = f"""Company: {state['brief']}
 Cycle: {state['cycle']}
 
 FEATURE: {ceo_decision}
 
-FILES: {json.dumps(file_paths, indent=2)}
+PROJECT DIR: {proj_dir}
+{install_note}
 
-PROJECT DIR: {project_dirs[0] if project_dirs else 'unknown'}
-
-Run: npm install, npm run build, write docs/qa-report.md, STOP."""
+Steps: {"npm run build" if has_modules else "npm install → npm run build"} → write docs/qa-report.md → STOP."""
     else:
         qa_system = _QA_SYSTEM_VANILLA
         max_iter = 5
