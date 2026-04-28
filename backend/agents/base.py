@@ -166,10 +166,29 @@ async def run_agent_with_tools(
         tokens_used = billable
         total_tokens += tokens_used
 
-        # Update running total in session and emit immediately with real value
+        # Update running total in session and emit immediately with real value.
+        # Breakdown lets the frontend compute live cost + cache hit rate.
         if session is not None:
             session["tokens"] = session.get("tokens", 0) + tokens_used
-            await emit("token-update", {"delta": tokens_used, "total": session["tokens"]})
+            usage_totals = session.setdefault("usage_totals", {
+                "raw_input": 0, "cache_create": 0, "cache_read": 0, "output": 0,
+            })
+            usage_totals["raw_input"]    += raw_input
+            usage_totals["cache_create"] += cache_create
+            usage_totals["cache_read"]   += cache_read
+            usage_totals["output"]       += output_tokens
+            await emit("token-update", {
+                "delta": tokens_used,
+                "total": session["tokens"],
+                "model": model,
+                "deltaUsage": {
+                    "raw_input":    raw_input,
+                    "cache_create": cache_create,
+                    "cache_read":   cache_read,
+                    "output":       output_tokens,
+                },
+                "totalUsage": dict(usage_totals),
+            })
 
         # Surface cache efficiency on notable iterations
         if cache_read > 500 and iteration < 3:

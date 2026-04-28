@@ -229,40 +229,41 @@ function connectSSE() {
   });
 
   // Live token streaming — append deltas to a single bubble per call so
-  // viewers watch characters appear as Claude types them.
+  // viewers watch characters appear as Claude types them. Bubble is only
+  // created on the first non-empty delta to avoid empty-cursor flicker.
   es.addEventListener('agent-stream', e => {
     const d = JSON.parse(e.data);
     if (!d.from || !d.messageId) return;
     let el = $commFeed.querySelector(`[data-stream-id="${d.messageId}"]`);
-    if (!el) {
-      const fromMeta = LIVE_AGENT_META[d.from] || { name: d.from, color: '#888', bg: 'rgba(128,128,128,0.1)', abbr: '?' };
-      const pid = PORTRAIT_ID_MAP[d.from] || d.from;
-      const time = new Date().toTimeString().slice(0, 8);
-      el = document.createElement('div');
-      el.className = 'feed-msg type-communicate g3-streaming';
-      el.dataset.streamId = d.messageId;
-      el.innerHTML = `
-        <div class="feed-avatar-sm" style="background:${fromMeta.bg};color:${fromMeta.color};border:1px solid ${fromMeta.color}">
-          <div style="width:100%;height:100%;border-radius:50%;overflow:hidden">${PORTRAITS[pid]||fromMeta.abbr}</div>
-        </div>
-        <div class="feed-body">
-          <div class="feed-meta">
-            <span class="feed-sender" style="color:${fromMeta.color}">${fromMeta.name}</span>
-            <span class="feed-time">${time}</span>
-          </div>
-          <div class="feed-text" data-stream-text></div>
-        </div>`;
-      $commFeed.appendChild(el);
-      liveState.msgCount++;
-      $msgCount.textContent = `${liveState.msgCount} message${liveState.msgCount !== 1 ? 's' : ''}`;
-    }
     if (d.delta) {
+      if (!el) {
+        const fromMeta = LIVE_AGENT_META[d.from] || { name: d.from, color: '#888', bg: 'rgba(128,128,128,0.1)', abbr: '?' };
+        const pid = PORTRAIT_ID_MAP[d.from] || d.from;
+        const time = new Date().toTimeString().slice(0, 8);
+        el = document.createElement('div');
+        el.className = 'feed-msg type-communicate g3-streaming';
+        el.dataset.streamId = d.messageId;
+        el.innerHTML = `
+          <div class="feed-avatar-sm" style="background:${fromMeta.bg};color:${fromMeta.color};border:1px solid ${fromMeta.color}">
+            <div style="width:100%;height:100%;border-radius:50%;overflow:hidden">${PORTRAITS[pid]||fromMeta.abbr}</div>
+          </div>
+          <div class="feed-body">
+            <div class="feed-meta">
+              <span class="feed-sender" style="color:${fromMeta.color}">${fromMeta.name}</span>
+              <span class="feed-time">${time}</span>
+            </div>
+            <div class="feed-text" data-stream-text></div>
+          </div>`;
+        $commFeed.appendChild(el);
+        liveState.msgCount++;
+        $msgCount.textContent = `${liveState.msgCount} message${liveState.msgCount !== 1 ? 's' : ''}`;
+      }
       const $text = el.querySelector('[data-stream-text]');
       if ($text) $text.textContent += d.delta;
       $commFeed.scrollTop = $commFeed.scrollHeight;
       if (d.from !== 'system') updateDeskBubble(d.from, d.delta);
     }
-    if (d.done) {
+    if (d.done && el) {
       el.classList.remove('g3-streaming');
     }
   });
@@ -275,10 +276,11 @@ function connectSSE() {
   });
 
   es.addEventListener('token-update', e => {
-    const { total } = JSON.parse(e.data);
-    liveState.tokens = total;
-    $liveTokens.textContent = fmtNum(total);
-    updateTopbarBudget(TOTAL_BUDGET - total);
+    const d = JSON.parse(e.data);
+    liveState.tokens = d.total;
+    $liveTokens.textContent = fmtNum(d.total);
+    updateTopbarBudget(TOTAL_BUDGET - d.total);
+    _liveUpdateDashboard(d);
   });
 
   es.addEventListener('crisis', e => {
@@ -375,6 +377,57 @@ function flashDeskFileBadge(agentId, filePath) {
 }
 
 /* ── Comm feed ── */
+// ── Live cost + speed dashboard ─────────────────────────────────────────
+const LIVE_RATES = {
+  'claude-sonnet-4-6':   { in: 3.00, cache_w: 3.75, cache_r: 0.30, out: 15.00 },
+  'claude-sonnet-4-5':   { in: 3.00, cache_w: 3.75, cache_r: 0.30, out: 15.00 },
+  'claude-opus-4-7':     { in: 15.00, cache_w: 18.75, cache_r: 1.50, out: 75.00 },
+  'claude-opus-4-6':     { in: 15.00, cache_w: 18.75, cache_r: 1.50, out: 75.00 },
+  'claude-haiku-4-5':    { in: 0.80, cache_w: 1.00, cache_r: 0.08, out: 4.00 },
+};
+const _LIVE_DEFAULT_RATE = LIVE_RATES['claude-sonnet-4-6'];
+const _liveTpsWindow = [];
+
+function _liveFormatCost(usd) {
+  if (usd < 0.01) return '$' + usd.toFixed(4);
+  if (usd < 1)    return '$' + usd.toFixed(3);
+  return '$' + usd.toFixed(2);
+}
+
+function _liveUpdateDashboard(d) {
+  const $cost  = document.getElementById('live-cost');
+  const $cache = document.getElementById('live-cache');
+  const $tps   = document.getElementById('live-tps');
+  const usage  = d.totalUsage;
+
+  if ($cost && usage) {
+    const r = LIVE_RATES[d.model] || _LIVE_DEFAULT_RATE;
+    const cost =
+      (usage.raw_input    || 0) * r.in       / 1e6 +
+      (usage.cache_create || 0) * r.cache_w  / 1e6 +
+      (usage.cache_read   || 0) * r.cache_r  / 1e6 +
+      (usage.output       || 0) * r.out      / 1e6;
+    $cost.textContent = _liveFormatCost(cost);
+  }
+  if ($cache && usage) {
+    const total = (usage.raw_input || 0) + (usage.cache_create || 0) + (usage.cache_read || 0);
+    const rate = total > 0 ? (usage.cache_read || 0) / total : 0;
+    $cache.textContent = total > 0 ? Math.round(rate * 100) + '%' : '—';
+  }
+  if ($tps && d.delta) {
+    const now = Date.now();
+    _liveTpsWindow.push({ t: now, tokens: d.delta });
+    const cutoff = now - 5000;
+    while (_liveTpsWindow.length && _liveTpsWindow[0].t < cutoff) _liveTpsWindow.shift();
+    if (_liveTpsWindow.length >= 2) {
+      const span = (now - _liveTpsWindow[0].t) / 1000;
+      const sum = _liveTpsWindow.reduce((a, e) => a + e.tokens, 0);
+      const tps = span > 0 ? Math.round(sum / span) : 0;
+      $tps.textContent = tps.toLocaleString();
+    }
+  }
+}
+
 function appendFeedMessage(msg) {
   liveState.msgCount++;
   $msgCount.textContent = `${liveState.msgCount} message${liveState.msgCount !== 1 ? 's' : ''}`;

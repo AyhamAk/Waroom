@@ -73,6 +73,9 @@ function game3dInit() {
     });
   }
 
+  // Build the agent-collaboration mini-map (nodes + edges; pulses come later).
+  _g3InitMiniMap();
+
   // Connect SSE — share whichever stream is open, otherwise open one.
   if (!game3dState.sse) {
     try {
@@ -135,6 +138,7 @@ function _wireG3SSE(es) {
     }
     if ($badge) $badge.textContent = status.toUpperCase();
     _g3UpdateActiveAgent(d.agentId, status);
+    _g3MmSetActive(d.agentId, status === 'thinking' || status === 'working');
   });
 
   es.addEventListener('new-message', (ev) => {
@@ -155,37 +159,35 @@ function _wireG3SSE(es) {
   });
 
   // Live token streaming — append deltas to a single bubble per call so
-  // viewers see characters appear as Claude types them.
+  // viewers see characters appear as Claude types them. The bubble is only
+  // created on the first delta with content, so tool-only iterations don't
+  // leave an empty cursor behind.
   es.addEventListener('agent-stream', (ev) => {
     const d = JSON.parse(ev.data);
     const feed = document.getElementById('g3-feed-' + d.from);
     if (!feed) return;
     let line = feed.querySelector(`[data-stream-id="${d.messageId}"]`);
-    if (!line) {
-      line = document.createElement('div');
-      line.className = 'bs-feed-line g3-streaming';
-      line.dataset.streamId = d.messageId;
-      feed.appendChild(line);
-      while (feed.children.length > 60) feed.removeChild(feed.firstChild);
-    }
     if (d.delta) {
+      if (!line) {
+        line = document.createElement('div');
+        line.className = 'bs-feed-line g3-streaming';
+        line.dataset.streamId = d.messageId;
+        feed.appendChild(line);
+        while (feed.children.length > 60) feed.removeChild(feed.firstChild);
+      }
       line.textContent += d.delta;
-      // Keep the live bubble visible at the bottom of the feed.
       feed.scrollTop = feed.scrollHeight;
-      // Also surface the latest sentence into the agent's status-line card.
-      const accumulated = line.textContent;
-      const lastSentence = accumulated.split('\n').pop().slice(-160);
+      const lastSentence = line.textContent.split('\n').pop().slice(-160);
       _g3UpdateStatusLine(d.from, lastSentence);
     }
-    if (d.done) {
+    if (d.done && line) {
       line.classList.remove('g3-streaming');
     }
   });
 
   es.addEventListener('token-update', (ev) => {
     const d = JSON.parse(ev.data);
-    const $t = document.getElementById('g3-tokens');
-    if ($t) $t.textContent = (d.total || 0).toLocaleString();
+    _g3UpdateDashboard(d);
   });
 
   es.addEventListener('game-start', () => {
@@ -251,6 +253,8 @@ function _wireG3SSE(es) {
   es.addEventListener('new-file', (ev) => {
     const d = JSON.parse(ev.data);
     if (!d.path) return;
+    // Mini-map: pulse from author → downstream readers.
+    _g3MmHandleFile(d.path, d.agentId);
     // Live-refresh the preview when public/* assets land. Debounced inside helper.
     if (/^public\//.test(d.path) && /\.(html|js|mjs|css)$/i.test(d.path)) {
       _g3SchedulePreviewRefresh();
@@ -264,6 +268,206 @@ function _wireG3SSE(es) {
   if (iframe && !iframe._g3HookInstalled) {
     iframe._g3HookInstalled = true;
     iframe.addEventListener('load', _g3OnPreviewLoad);
+  }
+}
+
+// ── Agent collaboration mini-map ────────────────────────────────────────
+// Renders a pipeline arc above the agent cards. Nodes glow when their agent
+// is thinking/working; pulses travel between nodes when files are passed.
+
+// Which agents read which file paths (sourced from each agent's docstring).
+// Used to animate pulses from author → readers when a file lands.
+const G3_FILE_READERS = {
+  'docs/game-design.md': [
+    'level-designer', 'asset-lead', 'engine-engineer',
+    'tech-art', 'gameplay-programmer', 'vision-playtester',
+  ],
+  'docs/levels/level_01.json': [
+    'asset-lead', 'engine-engineer', 'gameplay-programmer', 'vision-playtester',
+  ],
+  'docs/asset-manifest.json': [
+    'engine-engineer', 'tech-art', 'gameplay-programmer', 'vision-playtester',
+  ],
+  'docs/engine-config.json': ['gameplay-programmer', 'vision-playtester'],
+  'docs/materials.json':     ['engine-engineer', 'gameplay-programmer', 'vision-playtester'],
+};
+
+const _g3MmPositions = {}; // agentId → {cx, cy}
+let _g3MmInited = false;
+
+function _g3InitMiniMap() {
+  if (_g3MmInited) return;
+  const $svg = document.getElementById('g3-minimap');
+  const $nodes = document.getElementById('g3-mm-nodes');
+  const $edges = document.getElementById('g3-mm-edges');
+  if (!$svg || !$nodes || !$edges) return;
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const W = 320, H = 110, MARGIN = 26, R = 12;
+  const n = G3_AGENTS.length;
+  // Lay nodes along a gentle arc so the line reads as a pipeline.
+  G3_AGENTS.forEach((a, i) => {
+    const t = i / (n - 1);
+    const cx = MARGIN + t * (W - 2 * MARGIN);
+    const cy = H / 2 + Math.sin(t * Math.PI) * -18; // arc upward
+    _g3MmPositions[a.id] = { cx, cy };
+  });
+
+  // Edges first (under nodes).
+  for (let i = 0; i < n - 1; i++) {
+    const a = _g3MmPositions[G3_AGENTS[i].id];
+    const b = _g3MmPositions[G3_AGENTS[i + 1].id];
+    const line = document.createElementNS(NS, 'line');
+    line.setAttribute('x1', a.cx); line.setAttribute('y1', a.cy);
+    line.setAttribute('x2', b.cx); line.setAttribute('y2', b.cy);
+    line.setAttribute('class', 'g3-mm-edge');
+    $edges.appendChild(line);
+  }
+
+  // Nodes.
+  G3_AGENTS.forEach(a => {
+    const p = _g3MmPositions[a.id];
+    const g = document.createElementNS(NS, 'g');
+    g.setAttribute('class', 'g3-mm-node');
+    g.dataset.agent = a.id;
+    g.style.setProperty('--agent-color', a.color);
+
+    const halo = document.createElementNS(NS, 'circle');
+    halo.setAttribute('cx', p.cx); halo.setAttribute('cy', p.cy);
+    halo.setAttribute('r', R + 4);
+    halo.setAttribute('class', 'g3-mm-halo');
+    g.appendChild(halo);
+
+    const c = document.createElementNS(NS, 'circle');
+    c.setAttribute('cx', p.cx); c.setAttribute('cy', p.cy);
+    c.setAttribute('r', R);
+    c.setAttribute('class', 'g3-mm-circle');
+    g.appendChild(c);
+
+    const label = document.createElementNS(NS, 'text');
+    label.setAttribute('x', p.cx); label.setAttribute('y', p.cy + 1);
+    label.setAttribute('class', 'g3-mm-abbr');
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('dominant-baseline', 'middle');
+    label.textContent = a.abbr;
+    g.appendChild(label);
+
+    $nodes.appendChild(g);
+  });
+
+  _g3MmInited = true;
+}
+
+function _g3MmSetActive(agentId, active) {
+  const node = document.querySelector(`#g3-mm-nodes .g3-mm-node[data-agent="${agentId}"]`);
+  if (node) node.classList.toggle('active', active);
+}
+
+function _g3MmEmitPulse(fromId, toId) {
+  const $pulses = document.getElementById('g3-mm-pulses');
+  const a = _g3MmPositions[fromId];
+  const b = _g3MmPositions[toId];
+  if (!$pulses || !a || !b) return;
+  const NS = 'http://www.w3.org/2000/svg';
+  const dot = document.createElementNS(NS, 'circle');
+  dot.setAttribute('cx', a.cx);
+  dot.setAttribute('cy', a.cy);
+  dot.setAttribute('r', 4);
+  const fromAgent = G3_AGENTS.find(x => x.id === fromId);
+  dot.setAttribute('fill', fromAgent ? fromAgent.color : '#10b981');
+  dot.setAttribute('class', 'g3-mm-pulse');
+  $pulses.appendChild(dot);
+  // Trigger CSS transition on the next frame so the start position renders first.
+  requestAnimationFrame(() => {
+    dot.setAttribute('cx', b.cx);
+    dot.setAttribute('cy', b.cy);
+    dot.style.opacity = '0';
+  });
+  setTimeout(() => dot.remove(), 900);
+}
+
+function _g3MmHandleFile(path, authorId) {
+  if (!authorId) return;
+  // Match against known consumer mappings; fall back to "next agent in pipeline".
+  let readers = null;
+  for (const key in G3_FILE_READERS) {
+    if (path === key || path.endsWith('/' + key.split('/').pop())) {
+      readers = G3_FILE_READERS[key];
+      break;
+    }
+  }
+  if (!readers) {
+    const idx = G3_AGENTS.findIndex(a => a.id === authorId);
+    if (idx >= 0 && idx < G3_AGENTS.length - 1) readers = [G3_AGENTS[idx + 1].id];
+  }
+  if (!readers) return;
+  readers.forEach(rid => {
+    if (rid !== authorId) _g3MmEmitPulse(authorId, rid);
+  });
+}
+
+// ── Live cost + speed dashboard ─────────────────────────────────────────
+// Per-model rates per million tokens (USD). Add new models as needed.
+const G3_RATES = {
+  'claude-sonnet-4-6':   { in: 3.00, cache_w: 3.75, cache_r: 0.30, out: 15.00 },
+  'claude-sonnet-4-5':   { in: 3.00, cache_w: 3.75, cache_r: 0.30, out: 15.00 },
+  'claude-opus-4-7':     { in: 15.00, cache_w: 18.75, cache_r: 1.50, out: 75.00 },
+  'claude-opus-4-6':     { in: 15.00, cache_w: 18.75, cache_r: 1.50, out: 75.00 },
+  'claude-haiku-4-5':    { in: 0.80, cache_w: 1.00, cache_r: 0.08, out: 4.00 },
+};
+const _G3_DEFAULT_RATE = G3_RATES['claude-sonnet-4-6'];
+const _g3TpsWindow = []; // [{t: ms, tokens: number}, ...]
+
+function _g3PickRate(model) {
+  if (!model) return _G3_DEFAULT_RATE;
+  return G3_RATES[model] || _G3_DEFAULT_RATE;
+}
+
+function _g3FormatCost(usd) {
+  if (usd < 0.01)  return '$' + usd.toFixed(4);
+  if (usd < 1)     return '$' + usd.toFixed(3);
+  return '$' + usd.toFixed(2);
+}
+
+function _g3UpdateDashboard(d) {
+  const $tokens = document.getElementById('g3-tokens');
+  const $cost   = document.getElementById('g3-cost');
+  const $cache  = document.getElementById('g3-cache');
+  const $tps    = document.getElementById('g3-tps');
+
+  if ($tokens) $tokens.textContent = (d.total || 0).toLocaleString();
+
+  // Cost — derived from cumulative usage breakdown using model rates.
+  const usage = d.totalUsage;
+  if ($cost && usage) {
+    const r = _g3PickRate(d.model);
+    const cost =
+      (usage.raw_input    || 0) * r.in       / 1e6 +
+      (usage.cache_create || 0) * r.cache_w  / 1e6 +
+      (usage.cache_read   || 0) * r.cache_r  / 1e6 +
+      (usage.output       || 0) * r.out      / 1e6;
+    $cost.textContent = _g3FormatCost(cost);
+  }
+
+  // Cache hit rate — cache_read / (cache_read + cache_create + raw_input).
+  if ($cache && usage) {
+    const total = (usage.raw_input || 0) + (usage.cache_create || 0) + (usage.cache_read || 0);
+    const rate = total > 0 ? (usage.cache_read || 0) / total : 0;
+    $cache.textContent = total > 0 ? Math.round(rate * 100) + '%' : '—';
+  }
+
+  // Tokens/sec — moving average over the last 5 seconds.
+  if ($tps && d.delta) {
+    const now = Date.now();
+    _g3TpsWindow.push({ t: now, tokens: d.delta });
+    const cutoff = now - 5000;
+    while (_g3TpsWindow.length && _g3TpsWindow[0].t < cutoff) _g3TpsWindow.shift();
+    if (_g3TpsWindow.length >= 2) {
+      const span = (now - _g3TpsWindow[0].t) / 1000;
+      const sum = _g3TpsWindow.reduce((a, e) => a + e.tokens, 0);
+      const tps = span > 0 ? Math.round(sum / span) : 0;
+      $tps.textContent = tps.toLocaleString();
+    }
   }
 }
 

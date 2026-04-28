@@ -3163,6 +3163,16 @@ body {
   font-size: 0.95rem;
   font-weight: 600;
 }
+.g3-stat-cost .ls-val {
+  color: #fbbf24;
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 6px rgba(251,191,36,0.25);
+}
+#g3-tps, #g3-cache {
+  font-variant-numeric: tabular-nums;
+}
 .g3-ctrl-divider {
   width: 1px;
   height: 22px;
@@ -3234,6 +3244,71 @@ body {
 .g3-live-main.g3-running .bs-input-panel + .live-panel {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   Game studio mini-map — pipeline visualization above the agent column.
+   Nodes glow when their agent is active; pulses travel author → readers
+   when files land.
+────────────────────────────────────────────────────────────────── */
+.g3-minimap-wrap {
+  padding: 0.6rem 0.6rem 0.4rem;
+  background: linear-gradient(180deg, rgba(0,0,0,0.18), transparent);
+  border-bottom: 1px solid var(--border);
+}
+.g3-minimap {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 110px;
+}
+
+.g3-mm-edge {
+  stroke: rgba(255,255,255,0.10);
+  stroke-width: 1.4;
+  fill: none;
+}
+
+.g3-mm-node .g3-mm-circle {
+  fill: rgba(255,255,255,0.04);
+  stroke: var(--agent-color);
+  stroke-width: 1.5;
+  transition: fill 0.3s, stroke-width 0.3s, filter 0.3s;
+}
+.g3-mm-node .g3-mm-halo {
+  fill: var(--agent-color);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.g3-mm-node .g3-mm-abbr {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 7px;
+  letter-spacing: 0.1em;
+  fill: var(--agent-color);
+  pointer-events: none;
+}
+
+/* Active node — glow in the agent's own colour, halo fades in. */
+.g3-mm-node.active .g3-mm-circle {
+  fill: color-mix(in srgb, var(--agent-color) 18%, transparent);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 6px var(--agent-color));
+}
+.g3-mm-node.active .g3-mm-halo {
+  opacity: 0.18;
+  animation: g3MmHaloPulse 1.4s ease-in-out infinite;
+}
+@keyframes g3MmHaloPulse {
+  0%, 100% { opacity: 0.10; transform: scale(1); }
+  50%      { opacity: 0.28; transform: scale(1.15); transform-origin: center; }
+}
+
+/* Pulse — a small dot that transitions from author → reader and fades. */
+.g3-mm-pulse {
+  transition: cx 0.85s cubic-bezier(.4,.1,.3,1),
+              cy 0.85s cubic-bezier(.4,.1,.3,1),
+              opacity 0.85s ease-in;
+  filter: drop-shadow(0 0 4px currentColor);
 }
 
 /* ──────────────────────────────────────────────────────────────────

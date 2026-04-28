@@ -218,8 +218,11 @@
         <button class="ctrl-btn customer-btn" id="customer-btn">👤 CUSTOMER</button>
       </div>
       <div class="ctrl-right">
-        <div class="live-stat"><span class="ls-label">TOKENS</span><span class="ls-val" id="live-tokens">0</span></div>
         <div class="live-stat"><span class="ls-label">UPTIME</span><span class="ls-val" id="session-timer">00:00:00</span></div>
+        <div class="live-stat"><span class="ls-label">TOK/S</span><span class="ls-val" id="live-tps">—</span></div>
+        <div class="live-stat g3-stat-prominent"><span class="ls-label">TOKENS</span><span class="ls-val" id="live-tokens">0</span></div>
+        <div class="live-stat g3-stat-cost"><span class="ls-label">COST</span><span class="ls-val" id="live-cost">$0.00</span></div>
+        <div class="live-stat"><span class="ls-label">CACHE</span><span class="ls-val" id="live-cache">—</span></div>
         <div class="live-indicator"><span class="live-dot"></span>LIVE</div>
         <input id="continue-feedback" class="continue-feedback-input" hidden placeholder="Feedback for agents..." />
         <button class="ctrl-btn continue-btn" id="continue-btn" hidden onclick="continueSession()" title="Resume agents from current cycle">▶ CONTINUE</button>
@@ -334,7 +337,10 @@
       </div>
       <div class="ctrl-right">
         <div class="live-stat"><span class="ls-label">UPTIME</span><span class="ls-val" id="g3-timer">00:00:00</span></div>
+        <div class="live-stat"><span class="ls-label">TOK/S</span><span class="ls-val" id="g3-tps">—</span></div>
         <div class="live-stat g3-stat-prominent"><span class="ls-label">TOKENS</span><span class="ls-val" id="g3-tokens">0</span></div>
+        <div class="live-stat g3-stat-cost"><span class="ls-label">COST</span><span class="ls-val" id="g3-cost">$0.00</span></div>
+        <div class="live-stat"><span class="ls-label">CACHE</span><span class="ls-val" id="g3-cache">—</span></div>
         <span class="g3-ctrl-divider" aria-hidden="true"></span>
         <button class="ctrl-btn" id="g3-pause-btn" onclick="game3dTogglePause()" hidden>⏸ PAUSE</button>
         <button class="ctrl-btn new-mission-live-btn" id="g3-stop-btn" onclick="game3dStop()">■ STOP</button>
@@ -409,6 +415,13 @@
 
           <div class="live-panel">
             <div class="panel-title">3D GAME PIPELINE AGENTS</div>
+            <div class="g3-minimap-wrap">
+              <svg class="g3-minimap" id="g3-minimap" viewBox="0 0 320 110" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                <g class="g3-mm-edges" id="g3-mm-edges"></g>
+                <g class="g3-mm-pulses" id="g3-mm-pulses"></g>
+                <g class="g3-mm-nodes" id="g3-mm-nodes"></g>
+              </svg>
+            </div>
             <div class="bs-agent-desks" id="g3-agent-desks"></div>
           </div>
         </div>
