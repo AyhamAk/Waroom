@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "indexed_at": "2026-04-26T19:52:46.060122+00:00",
+  "sources": {
+    "khronos": {
+      "name": "Khronos glTF Sample Models",
+      "url": "https://github.com/KhronosGroup/glTF-Sample-Models",
+      "license": "CC0 / public domain (per model \u2014 see source)"
+    },
+    "kenney": {
+      "name": "Kenney.nl",
+      "url": "https://kenney.nl/assets",
+      "license": "CC0"
+    },
+    "quaternius": {
+      "name": "Quaternius",
+      "url": "https://quaternius.com",
+      "license": "CC0"
+    },
+    "mixamo": {
+      "name": "Mixamo",
+      "url": "https://www.mixamo.com",
+      "license": "Free for use (Adobe terms)"
+    }
+  },
+  "assets": {
+    "khronos_avocado": {
+      "path": "khronos/Avocado.glb",
+      "type": "prop_static",
+      "tags": [
+        "avocado",
+        "food",
+        "small",
+        "pickup",
+        "organic",
+        "pbr"
+      ],
+      "anims": [],
+      "tris": 682,
+      "size_bytes": 8328156,
+      "source": "khronos",
+      "license": "CC0",
+      "credit": "Microsoft \u2014 public domain"
+    },
+    "khronos_boxanimated": {
+      "path": "khronos/BoxAnimated.glb",
+      "type": "character_rigged",
+      "tags": [
+        "box",
+        "animated",
+        "test",
+        "primitive",
+        "rigged"
+      ],
+      "anims": [
+        "animation_AnimatedCube"
+      ],
+      "tris": 254,
+      "size_bytes": 11944,
+      "source": "khronos",
+      "license": "CC0",
+      "credit": "Cesium \u2014 public domain"
+    },
+    "khronos_damagedhelmet": {
+      "path": "khronos/DamagedHelmet.glb",
+      "type": "prop_static",
+      "tags": [
+        "helmet",
+        "scifi",
+        "metallic",
+        "pbr",
+        "hero",
+        "wearable"
+      ],
+      "anims": [],
+      "tris": 15452,
+      "size_bytes": 3773916,
+      "source": "khronos",
+      "license": "CC BY-NC 4.0",
+      "credit": "ctxwing on artstation, distributed under public domain via Khronos."
+    },
+    "khronos_fox": {
+      "path": "khronos/Fox.glb",
+      "type": "character_rigged",
+      "tags": [
+        "fox",
+        "animal",
+        "creature",
+        "stylized",
+        "rigged",
+        "low_poly",
+        "humanoid_quadruped"
+      ],
+      "anims": [
+        "Survey",
+        "Walk",
+        "Run"
+      ],
+      "tris": 576,
+      "size_bytes": 162852,
+      "source": "khronos",
+      "license": "CC BY 4.0",
+      "credit": "Pixar (modified by Tom\u00e1\u0161 P\u016f\u010dek) \u2014 CC BY 4.0"
+    },
+    "khronos_lantern": {
+      "path": "khronos/Lantern.glb",
+      "type": "prop_static",
+      "tags": [
+        "lantern",
+        "light",
+        "metal",
+        "fantasy",
+        "atmospheric"
+      ],
+      "anims": [],
+      "tris": 5394,
+      "size_bytes": 9872848,
+      "source": "khronos",
+      "license": "CC0",
+      "credit": "Microsoft \u2014 public domain"
+    },
+    "khronos_waterbottle": {
+      "path": "khronos/WaterBottle.glb",
+      "type": "prop_static",
+      "tags": [
+        "bottle",
+        "water",
+        "transparent",
+        "pickup",
+        "pbr"
+      ],
+      "anims": [],
+      "tris": 4510,
+      "size_bytes": 8961340,
+      "source": "khronos",
+      "license": "CC0",
+      "credit": "Microsoft \u2014 public domain"
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "name": "platformer_3d",
+  "match": ["platformer", "platform", "jump", "mario", "celeste", "parkour", "runner", "obstacle course"],
+  "genre": "platformer_3d",
+  "fallback": false,
+  "art_style_default": "stylized",
+  "core_loop": "Spawn → Run → Jump → Avoid hazards → Collect → Reach goal",
+  "win_condition": "Reach the level-end portal OR collect all stars",
+  "lose_condition": "Fall off the world OR health reaches zero",
+  "controls": {
+    "WASD": "move (camera-relative)",
+    "space": "jump (variable height)",
+    "shift": "sprint",
+    "ctrl": "crouch / slide",
+    "mouse": "rotate camera",
+    "esc": "pause"
+  },
+  "camera": {
+    "type": "third_person_orbit",
+    "fov_or_size": 60,
+    "follow_target": "player",
+    "follow_offset": [0, 4, -7],
+    "follow_lerp": 0.12,
+    "min_pitch_deg": -10,
+    "max_pitch_deg": 60
+  },
+  "physics": {
+    "gravity": [0, -25, 0],
+    "kind": "rigid_body_with_capsule",
+    "jump_velocity": 9.5,
+    "ground_friction": 8,
+    "air_control": 0.3
+  },
+  "level_format": "handcrafted_blockout",
+  "asset_requirements": {
+    "player": {"type": "character_rigged", "anims": ["idle", "run", "jump", "fall", "land"]},
+    "platforms": ["static", "moving", "crumbling", "bouncy"],
+    "hazards": ["spike", "saw", "lava_pool"],
+    "collectibles": ["coin", "star", "key"],
+    "environment": ["sky_dome", "background_layer", "floor_decals"],
+    "vfx": ["jump_dust", "land_impact", "coin_sparkle", "death_poof"]
+  },
+  "lighting_preset": "warm_outdoor_skybox",
+  "post_fx_preset": "filmic_soft",
+  "use_csm": true,
+  "csm_cascades": 3,
+  "csm_max_far": 120,
+  "csm_shadow_size": 2048,
+  "fog_kind": "exp2_haze",
+  "shader_features": ["bloom", "ssao", "dof", "vignette", "chromatic_aberration", "film_grain"],
+  "audio_requirements": {
+    "music": ["overworld_loop"],
+    "sfx": ["jump", "land", "coin", "checkpoint", "death", "win", "ui_click"]
+  },
+  "perf_budget": {
+    "target_fps": 60,
+    "max_triangles": 1200000,
+    "max_draw_calls": 120,
+    "max_lights": 4,
+    "texture_memory_mb": 200
+  },
+  "playtest_objectives": [
+    "Player lands the first jump within 5 seconds of load",
+    "Camera never clips through static geometry",
+    "First collectible is visible from spawn",
+    "Death + respawn is under 1.5 seconds total"
+  ]
+}

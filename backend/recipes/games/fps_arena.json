@@ -1,0 +1,72 @@
+{
+  "name": "fps_arena",
+  "match": ["fps", "first person", "first-person", "doom", "quake", "shooter arena", "deathmatch"],
+  "genre": "fps_arena",
+  "fallback": false,
+  "art_style_default": "stylized",
+  "core_loop": "Spawn → Sweep → Shoot → Frag → Pickup → Repeat",
+  "win_condition": "Reach the kill quota OR survive the timer",
+  "lose_condition": "Health reaches zero (respawn enabled — score gates win)",
+  "controls": {
+    "WASD": "move",
+    "mouse": "aim (pointer-locked)",
+    "click_left": "fire",
+    "click_right": "alt-fire",
+    "1-3": "weapon select",
+    "shift": "sprint",
+    "space": "jump",
+    "r": "reload",
+    "esc": "pause"
+  },
+  "camera": {
+    "type": "first_person",
+    "fov_or_size": 90,
+    "follow_target": "player_head",
+    "headbob_amplitude": 0.05,
+    "headbob_speed": 9
+  },
+  "physics": {
+    "gravity": [0, -22, 0],
+    "kind": "kinematic_capsule",
+    "move_speed": 7.5,
+    "sprint_mult": 1.5,
+    "jump_velocity": 8,
+    "air_control": 0.5
+  },
+  "ai_archetypes": ["roamer", "guard", "boss"],
+  "level_format": "blockout_rooms_corridors",
+  "asset_requirements": {
+    "player_hands": {"type": "first_person_arms_rigged"},
+    "weapons": ["pistol", "shotgun", "rifle"],
+    "enemies": ["roamer", "guard", "boss"],
+    "props": ["crate", "barrel", "explosive_barrel", "ammo_box", "med_kit"],
+    "environment": ["wall_panel", "floor_tile", "ceiling", "door"],
+    "vfx": ["muzzle_flash", "bullet_impact", "blood_decal", "explosion"]
+  },
+  "lighting_preset": "moody_industrial",
+  "post_fx_preset": "cinematic_grit",
+  "use_csm": false,
+  "csm_cascades": 2,
+  "csm_max_far": 80,
+  "csm_shadow_size": 2048,
+  "fog_kind": "exp2_dense",
+  "shader_features": ["bloom", "ssao", "dof", "vignette", "chromatic_aberration", "film_grain", "scanlines"],
+  "audio_requirements": {
+    "music": ["combat_intense", "ambient_corridor"],
+    "sfx": ["pistol", "shotgun", "rifle", "reload", "footstep_metal", "footstep_concrete", "hit_flesh", "hit_armor", "explosion", "die"]
+  },
+  "perf_budget": {
+    "target_fps": 60,
+    "max_triangles": 1500000,
+    "max_draw_calls": 150,
+    "max_lights": 8,
+    "texture_memory_mb": 250
+  },
+  "playtest_objectives": [
+    "Pointer lock engages on first click",
+    "Crosshair is centered and visible",
+    "First enemy is encountered within 20 seconds",
+    "Recoil + muzzle flash provide clear feedback per shot",
+    "Frame time stays under 16.6ms with 4+ enemies onscreen"
+  ]
+}

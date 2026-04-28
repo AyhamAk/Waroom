@@ -132,6 +132,19 @@ _PREVIEW_MIME = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "image/svg+xml",
     ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf",
     ".ico": "image/x-icon", ".webp": "image/webp",
+    ".glb": "model/gltf-binary", ".gltf": "model/gltf+json",
+    ".bin": "application/octet-stream", ".ktx2": "image/ktx2",
+    ".hdr": "image/vnd.radiance", ".exr": "image/x-exr",
+    ".ogg": "audio/ogg", ".mp3": "audio/mpeg", ".wav": "audio/wav",
+}
+
+# File extensions a running game might fetch at runtime (data, models, audio,
+# textures). Used by the catch-all to fall through to the active session's
+# public/ when fetch('/asset-manifest.json') etc. miss the warroom's own public/.
+_RUNTIME_DATA_EXTS = {
+    ".json", ".glb", ".gltf", ".bin", ".ktx2",
+    ".png", ".jpg", ".jpeg", ".webp", ".svg",
+    ".hdr", ".exr", ".ogg", ".mp3", ".wav",
 }
 
 
@@ -707,6 +720,390 @@ async def blender_video(session_id: str):
     )
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# GAME STUDIO PIPELINE (3D, Three.js + Vite)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Per-session state for the game pipeline (one active session at a time).
+_game_session: dict = {
+    "running": False,
+    "session_id": None,
+    "workspace_dir": None,
+    "preview_url": None,
+    "latest_screenshot": None,
+    "tokens": 0,
+    "files": [],
+    "task": None,
+    "paused": False,
+}
+
+
+class GameStartRequest(BaseModel):
+    brief: str
+    genre: Optional[str] = "auto"
+    artStyle: Optional[str] = "stylized"
+    target: Optional[str] = "web"
+    apiKey: str
+
+
+@app.post("/api/game/start")
+async def game_start(body: GameStartRequest):
+    """Start the 3D Game Studio pipeline (with sqlite checkpointing)."""
+    from graph.game_state import make_game_state
+
+    if _game_session.get("task") and not _game_session["task"].done():
+        _game_session["task"].cancel()
+        await asyncio.sleep(0.2)
+
+    session_id = f"game_{int(time.time() * 1000)}"
+    ws_dir = str(WORKSPACE_DIR / session_id)
+    for sub in ["docs", "docs/levels", "renders", "logs", "public"]:
+        Path(ws_dir, sub).mkdir(parents=True, exist_ok=True)
+
+    _game_session.update(
+        running=True, paused=False,
+        session_id=session_id, workspace_dir=ws_dir,
+        preview_url=None, latest_screenshot=None,
+        tokens=0, files=[], task=None,
+        brief=body.brief, genre=body.genre or "auto",
+        art_style=body.artStyle or "stylized",
+        # Save api_key alongside the session so resume-after-restart works
+        # without the user re-entering it. Kept inside the per-session
+        # workspace; never returned by listing endpoints.
+        api_key=body.apiKey,
+    )
+
+    initial_state = make_game_state(
+        session_id=session_id,
+        workspace_dir=ws_dir,
+        api_key=body.apiKey,
+        brief=body.brief,
+        genre=body.genre or "auto",
+        art_style=body.artStyle or "stylized",
+        target=body.target or "web",
+    )
+
+    config = {
+        "recursion_limit": 120,
+        "configurable": {
+            "thread_id": session_id,
+            "emit": _emit,
+            "game_session": _game_session,
+        },
+    }
+
+    task = asyncio.create_task(_run_game_graph(initial_state, config, ws_dir))
+    _game_session["task"] = task
+
+    return {"ok": True, "sessionId": session_id}
+
+
+async def _run_game_graph(initial_state: dict, config: dict, workspace_dir: str, resuming: bool = False):
+    """Drive the Game Studio LangGraph and emit progress over SSE.
+
+    Wraps the run inside an AsyncSqliteSaver context — every node
+    completion checkpoints to <workspace>/checkpoint.db. Pass
+    `resuming=True` to continue from the existing checkpoint (initial_state
+    is ignored in that case; LangGraph resumes from the last persisted node).
+    """
+    from graph.checkpointer import open_checkpointer
+    from graph.game_graph import build_game_graph
+    from tools.session_persist import save_session
+
+    try:
+        async with open_checkpointer(workspace_dir) as saver:
+            graph = build_game_graph(checkpointer=saver)
+
+            event_name = "game-resumed" if resuming else "game-start"
+            await _emit(event_name, {
+                "sessionId": _game_session["session_id"],
+                "brief": (initial_state or {}).get("brief", _game_session.get("brief", "")),
+                "genre": (initial_state or {}).get("genre", _game_session.get("genre", "auto")),
+            })
+            await _push_sys("Game Studio pipeline " + ("resuming from checkpoint" if resuming else "starting"))
+
+            for aid in [
+                "game-director", "level-designer", "asset-lead",
+                "engine-engineer", "tech-art", "gameplay-programmer",
+                "vision-playtester",
+            ]:
+                await _emit("agent-status", {"agentId": aid, "status": "idle"})
+
+            # Persist current session state up-front so a paused-pre-first-node
+            # session is resumable.
+            save_session(workspace_dir, _game_session)
+
+            # `astream(None, config=...)` is LangGraph's idiom for "continue
+            # from last checkpoint without seeding new state".
+            stream_input = None if resuming else initial_state
+
+            async for chunk in graph.astream(stream_input, config=config):
+                for node_name, state_update in chunk.items():
+                    if not isinstance(state_update, dict):
+                        continue
+                    if "total_tokens" in state_update:
+                        _game_session["tokens"] = state_update["total_tokens"]
+                        await _emit("token-update", {"delta": 0, "total": state_update["total_tokens"]})
+                    if state_update.get("latest_screenshot"):
+                        _game_session["latest_screenshot"] = state_update["latest_screenshot"]
+                    if state_update.get("preview_url"):
+                        _game_session["preview_url"] = state_update["preview_url"]
+                # Persist after every node so a crash mid-graph doesn't lose
+                # the file tree / token totals the UI displays on resume.
+                save_session(workspace_dir, _game_session)
+
+            await _push_sys("Game Studio pipeline complete — playable build ready")
+            await _emit("game-done", {
+                "sessionId": _game_session["session_id"],
+                "previewUrl": _game_session.get("preview_url"),
+            })
+            # Mark the session as finished but keep session.json on disk.
+            _game_session["running"] = False
+            _game_session["paused"] = False
+            _game_session["completed"] = True
+            save_session(workspace_dir, _game_session)
+    except asyncio.CancelledError:
+        # Persist on cancel so the session can still be resumed.
+        try: save_session(workspace_dir, _game_session)
+        except Exception: pass
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        await _push_sys(f"Game pipeline error: {str(exc)[:200]}")
+        await _emit("game-error", {"message": str(exc)})
+        try: save_session(workspace_dir, _game_session)
+        except Exception: pass
+    finally:
+        _game_session["running"] = False
+
+
+@app.post("/api/game/pause")
+async def game_pause():
+    """Pause the agents.
+
+    Effect: each agent loop spins on `session.paused` until cleared. The
+    in-flight LLM call (if any) finishes — pause never drops a billed
+    response. The session is persisted so the user can close the browser
+    or even the server and resume later via /api/game/resume.
+    """
+    from tools.session_persist import mark_paused
+    ws = _game_session.get("workspace_dir")
+    if not ws:
+        raise HTTPException(404, "No active game session")
+    mark_paused(ws, _game_session)
+    await _emit("game-paused", {"sessionId": _game_session.get("session_id")})
+    await _push_sys("Game Studio paused — state persisted, safe to close.")
+    return {"ok": True, "sessionId": _game_session.get("session_id")}
+
+
+class GameResumeRequest(BaseModel):
+    sessionId: Optional[str] = None
+    apiKey: Optional[str] = None
+
+
+@app.post("/api/game/resume")
+async def game_resume(body: GameResumeRequest):
+    """Resume a paused or interrupted session.
+
+    Three cases:
+      1. The current task is alive and paused — just clear the flag.
+      2. The current task is gone but the session matches — reload from
+         workspace + restart the graph (LangGraph picks up at the last
+         completed node via the sqlite checkpoint).
+      3. A specific sessionId is requested — switch to that workspace and
+         resume it.
+    """
+    from tools.session_persist import load_session, mark_resumed, list_sessions
+    from graph.game_state import make_game_state
+
+    # Case 1 — current task is paused, just unpause.
+    if (
+        _game_session.get("task") and not _game_session["task"].done()
+        and _game_session.get("paused")
+        and (not body.sessionId or body.sessionId == _game_session.get("session_id"))
+    ):
+        ws = _game_session.get("workspace_dir")
+        if ws: mark_resumed(ws, _game_session)
+        await _emit("game-resumed", {"sessionId": _game_session.get("session_id"), "mode": "live"})
+        await _push_sys("Game Studio resumed (live).")
+        return {"ok": True, "mode": "live", "sessionId": _game_session.get("session_id")}
+
+    # Case 2/3 — resume from disk.
+    target_id = body.sessionId
+    if not target_id:
+        # Pick the newest paused-or-incomplete session.
+        candidates = list_sessions(str(WORKSPACE_DIR), prefix="game_")
+        candidates = [s for s in candidates if not s.get("completed")]
+        if not candidates:
+            raise HTTPException(404, "No paused or incomplete session found")
+        target_id = candidates[0]["session_id"]
+
+    ws_dir = str(WORKSPACE_DIR / target_id)
+    if not Path(ws_dir).exists():
+        raise HTTPException(404, f"Workspace gone for {target_id}")
+    saved = load_session(ws_dir)
+    if not saved:
+        raise HTTPException(404, f"session.json missing for {target_id}")
+
+    api_key = body.apiKey or saved.get("api_key")
+    if not api_key:
+        raise HTTPException(400, "apiKey required to resume — none persisted")
+
+    # Cancel anything else in flight.
+    if _game_session.get("task") and not _game_session["task"].done():
+        _game_session["task"].cancel()
+        await asyncio.sleep(0.2)
+
+    # Restore the in-memory session from disk.
+    _game_session.update(
+        running=True, paused=False, completed=False,
+        session_id=target_id, workspace_dir=ws_dir,
+        preview_url=saved.get("preview_url"),
+        latest_screenshot=saved.get("latest_screenshot"),
+        tokens=saved.get("tokens", 0),
+        files=saved.get("files", []),
+        brief=saved.get("brief", ""),
+        genre=saved.get("genre", "auto"),
+        art_style=saved.get("art_style", "stylized"),
+        api_key=api_key,
+        task=None,
+    )
+
+    # Replay the persisted file tree to any connected SSE client so the UI
+    # rehydrates on resume.
+    for f in saved.get("files", []):
+        try: await _emit("new-file", f)
+        except Exception: pass
+
+    config = {
+        "recursion_limit": 120,
+        "configurable": {
+            "thread_id": target_id,
+            "emit": _emit,
+            "game_session": _game_session,
+        },
+    }
+    # initial_state is ignored when resuming from a checkpoint, but we pass
+    # one anyway to satisfy the type signature.
+    initial_state = make_game_state(
+        session_id=target_id,
+        workspace_dir=ws_dir,
+        api_key=api_key,
+        brief=saved.get("brief", ""),
+        genre=saved.get("genre", "auto"),
+        art_style=saved.get("art_style", "stylized"),
+    )
+
+    task = asyncio.create_task(_run_game_graph(initial_state, config, ws_dir, resuming=True))
+    _game_session["task"] = task
+    return {"ok": True, "mode": "restored", "sessionId": target_id}
+
+
+@app.post("/api/game/stop")
+async def game_stop():
+    """Stop the current session permanently. Use /api/game/pause if you want to resume later."""
+    from tools.session_persist import save_session
+    if _game_session.get("task") and not _game_session["task"].done():
+        _game_session["task"].cancel()
+    _game_session["running"] = False
+    _game_session["paused"] = False
+    _game_session["completed"] = True
+    ws = _game_session.get("workspace_dir")
+    if ws:
+        try: save_session(ws, _game_session)
+        except Exception: pass
+    await _emit("game-stopped", {"sessionId": _game_session.get("session_id")})
+    return {"ok": True}
+
+
+@app.get("/api/game/sessions")
+async def game_sessions():
+    """List recent persisted sessions (paused or completed) for resume UI."""
+    from tools.session_persist import list_sessions
+    out = list_sessions(str(WORKSPACE_DIR), prefix="game_")
+    # Strip secrets before returning.
+    safe = []
+    for s in out:
+        s = dict(s)
+        s.pop("api_key", None)
+        # Limit files payload — UI only needs counts here.
+        files = s.pop("files", [])
+        s["file_count"] = len(files)
+        safe.append(s)
+    return {"sessions": safe, "current": _game_session.get("session_id")}
+
+
+@app.get("/api/game/status")
+async def game_status():
+    return {
+        "running": _game_session["running"],
+        "paused":  _game_session.get("paused", False),
+        "completed": _game_session.get("completed", False),
+        "sessionId": _game_session["session_id"],
+        "tokens": _game_session["tokens"],
+        "previewUrl": _game_session.get("preview_url"),
+        "latestScreenshot": _game_session.get("latest_screenshot"),
+    }
+
+
+@app.get("/api/game/screenshot/{session_id}/{filename}")
+async def game_screenshot(session_id: str, filename: str):
+    if ".." in filename or "/" in filename or not filename.endswith(".png"):
+        raise HTTPException(400, "Invalid filename")
+    ws = _game_session.get("workspace_dir")
+    if not ws:
+        raise HTTPException(404, "No active game session")
+    ws_path = Path(ws).resolve()
+    p = (ws_path / "renders" / filename).resolve()
+    if not str(p).startswith(str(ws_path)) or not p.exists():
+        raise HTTPException(404, "Screenshot not found")
+    return Response(content=p.read_bytes(), media_type="image/png")
+
+
+@app.get("/preview-game")
+async def preview_game():
+    """Serve the built game from the active game session's public/."""
+    ws = _game_session.get("workspace_dir")
+    if not ws:
+        return HTMLResponse(_LOADING_HTML.format(subtitle="GAME STUDIO STANDING BY"))
+    index = Path(ws) / "public" / "index.html"
+    if not index.exists():
+        return HTMLResponse(_LOADING_HTML.format(subtitle="BUILDING — VITE COMPILE IN PROGRESS"))
+    html = index.read_text(encoding="utf-8", errors="replace")
+    # Rewrite asset references so the iframe can resolve them under /preview-game-asset/.
+    # Three cases:
+    #   1. relative paths (no leading slash, scheme, etc.)
+    #   2. root-absolute paths like /src/main.js — Vite's default
+    #   3. /assets/* — Vite build output
+    # Already-prefixed /preview-game-asset/* paths are left alone.
+    html = re.sub(
+        r'((?:src|href)=["\'])/(?![/])(?!preview-game-asset/|preview/|preview-ws/|api/)([^"\']*?)(["\'])',
+        lambda m: m.group(1) + "/preview-game-asset/" + m.group(2) + m.group(3),
+        html, flags=re.IGNORECASE,
+    )
+    html = re.sub(
+        r'((?:src|href)=["\'])(?!https?:|//|/|data:|#)([^"\']*?)(["\'])',
+        lambda m: m.group(1) + "/preview-game-asset/" + m.group(2) + m.group(3),
+        html, flags=re.IGNORECASE,
+    )
+    reload = "<script>if(window.self!==window.top){setTimeout(function(){location.reload()},5000)}</script>"
+    html = html.replace("</body>", reload + "</body>") if "</body>" in html else html + reload
+    return HTMLResponse(html)
+
+
+@app.get("/preview-game-asset/{file_path:path}")
+async def preview_game_asset(file_path: str):
+    ws = _game_session.get("workspace_dir")
+    if not ws:
+        raise HTTPException(404, "No active game session")
+    pub = (Path(ws) / "public").resolve()
+    full = (pub / file_path).resolve()
+    if not str(full).startswith(str(pub)) or not full.exists():
+        raise HTTPException(404, f"Not found: {file_path}")
+    mime = _PREVIEW_MIME.get(full.suffix.lower(), "application/octet-stream")
+    return Response(content=full.read_bytes(), media_type=mime)
+
+
 @app.post("/api/preview-screenshot")
 async def preview_screenshot(body: dict):
     return {"ok": True}
@@ -806,13 +1203,34 @@ async def serve_frontend(full_path: str):
         raise HTTPException(404)
 
     candidate = PUBLIC_DIR / full_path if full_path else PUBLIC_DIR / "index.html"
-    if not candidate.exists() or candidate.is_dir():
-        candidate = PUBLIC_DIR / "index.html"
-    if not candidate.exists():
-        raise HTTPException(404, "Frontend not found")
+    if candidate.exists() and not candidate.is_dir():
+        mime = _MIME.get(candidate.suffix.lower(), "text/plain")
+        return Response(content=candidate.read_bytes(), media_type=mime)
 
-    mime = _MIME.get(candidate.suffix.lower(), "text/plain")
-    return Response(content=candidate.read_bytes(), media_type=mime)
+    # If a game session is active, runtime fetches like fetch('/asset-manifest.json')
+    # land here. The HTML rewriter can't see those (they happen at runtime, not in
+    # markup), so fall through to the active session's public/ for known data
+    # extensions. This makes generated games "just work" without per-agent path hacks.
+    suffix = Path(full_path).suffix.lower()
+    if suffix in _RUNTIME_DATA_EXTS and full_path:
+        ws = _game_session.get("workspace_dir")
+        if ws:
+            ws_pub = (Path(ws) / "public").resolve()
+            full = (ws_pub / full_path).resolve()
+            if str(full).startswith(str(ws_pub)) and full.exists() and not full.is_dir():
+                mime = _PREVIEW_MIME.get(suffix, "application/octet-stream")
+                return Response(content=full.read_bytes(), media_type=mime)
+
+    # Only fall back to index.html for extensionless paths (SPA routes).
+    # A request for foo.js / foo.css that doesn't exist must 404, NOT serve HTML —
+    # otherwise the browser parses HTML as JS and boots into a SyntaxError.
+    if suffix and suffix != ".html":
+        raise HTTPException(404, f"Asset not found: {full_path}")
+
+    index = PUBLIC_DIR / "index.html"
+    if not index.exists():
+        raise HTTPException(404, "Frontend not found")
+    return Response(content=index.read_bytes(), media_type="text/html")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

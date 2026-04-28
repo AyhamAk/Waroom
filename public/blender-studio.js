@@ -48,26 +48,36 @@ const BLENDER_AGENTS = [
  */
 function switchStudioMode(mode) {
   const isBlender = mode === 'blender';
+  const isGame3d  = mode === 'game3d';
+  const isGame    = mode === 'game';
   blenderState.active = isBlender;
 
   // Tab UI
-  document.getElementById('tab-game-studio').classList.toggle('active', !isBlender);
+  document.getElementById('tab-game-studio').classList.toggle('active', isGame);
   document.getElementById('tab-blender-studio').classList.toggle('active', isBlender);
+  const $g3tab = document.getElementById('tab-game3d-studio');
+  if ($g3tab) $g3tab.classList.toggle('active', isGame3d);
 
-  // Phase indicators in topbar — only meaningful for Game Studio
+  // Phase indicators in topbar — only meaningful for legacy Game Studio
   const $phaseIndicators = document.getElementById('phase-indicators');
-  if ($phaseIndicators) $phaseIndicators.style.display = isBlender ? 'none' : '';
+  if ($phaseIndicators) $phaseIndicators.style.display = isGame ? '' : 'none';
 
-  // Blender Studio section
+  // Studio sections
   const $bs = document.getElementById('blender-studio');
+  const $g3 = document.getElementById('game3d-studio');
   if ($bs) $bs.hidden = !isBlender;
+  if ($g3) $g3.hidden = !isGame3d;
 
-  // When switching away from Blender, re-show whichever phase was active
-  if (!isBlender) {
+  if (isGame) {
     showPhase(state.currentPhase || 1);
   } else {
-    // Hide all phases while in Blender mode
+    // Hide all phases while in any non-game-studio mode
     document.querySelectorAll('.phase').forEach(el => el.classList.remove('active'));
+  }
+
+  // Lazy-init the 3D game studio UI on first switch.
+  if (isGame3d && typeof game3dInit === 'function') {
+    game3dInit();
   }
 }
 

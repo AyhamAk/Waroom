@@ -1,0 +1,14 @@
+{
+  "type": "prop_static",
+  "tags": [
+    "box",
+    "animated",
+    "test",
+    "primitive"
+  ],
+  "anims": [
+    "animation_AnimatedCube"
+  ],
+  "credit": "Cesium \u2014 public domain",
+  "license": "CC0"
+}

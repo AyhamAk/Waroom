@@ -1,0 +1,19 @@
+{
+  "type": "character_rigged",
+  "tags": [
+    "fox",
+    "animal",
+    "creature",
+    "stylized",
+    "rigged",
+    "low_poly",
+    "humanoid_quadruped"
+  ],
+  "anims": [
+    "Survey",
+    "Walk",
+    "Run"
+  ],
+  "credit": "Pixar (modified by Tom\u00e1\u0161 P\u016f\u010dek) \u2014 CC BY 4.0",
+  "license": "CC BY 4.0"
+}

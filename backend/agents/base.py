@@ -46,12 +46,17 @@ async def run_agent_with_tools(
     cache_tools: also cache the tools array (useful when tool schemas are large
       and stable). Requires min ~1024 tokens in the cached block.
     """
-    client = anthropic.Anthropic(api_key=api_key, timeout=120.0)
+    # Streaming below makes the per-call timeout less critical (it only fires on
+    # idle silence between tokens), but we keep a generous total budget anyway.
+    client = anthropic.Anthropic(api_key=api_key, timeout=300.0)
     first_content = user_message_content if user_message_content is not None else user_message
     messages: list[dict] = [{"role": "user", "content": first_content}]
     total_tokens = 0
     _msg_counter = [0]
     loop = asyncio.get_event_loop()
+    # Mutable cap — auto-bumped on truncation up to MAX_TOKENS_CEILING.
+    current_max_tokens = max_tokens
+    MAX_TOKENS_CEILING = 16000
 
     # Build system prompt with prompt caching enabled by default.
     # Anthropic requires at least ~1024 tokens in a cached block for Sonnet; system
@@ -93,19 +98,24 @@ async def run_agent_with_tools(
             while session.get("paused"):
                 await asyncio.sleep(0.5)
 
-        # Run the blocking Anthropic call in a thread — keeps event loop free
+        # Stream the response in a thread — keeps event loop free AND avoids the
+        # 120s single-call timeout on long generations (16K-token Builder outputs
+        # routinely take 130-180s, which used to kill the call mid-write).
         try:
             msgs_snapshot = list(messages)
-            response = await loop.run_in_executor(
-                None,
-                lambda: client.messages.create(
+            tokens_for_call = current_max_tokens
+
+            def _stream_sync():
+                with client.messages.stream(
                     model=model,
-                    max_tokens=max_tokens,
+                    max_tokens=tokens_for_call,
                     system=system_param,
                     tools=effective_tools,
                     messages=msgs_snapshot,
-                ),
-            )
+                ) as stream:
+                    return stream.get_final_message()
+
+            response = await loop.run_in_executor(None, _stream_sync)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -147,7 +157,12 @@ async def run_agent_with_tools(
             return final_text, total_tokens
 
         if response.stop_reason == "max_tokens":
-            await push("communicate", "⚠️ Output truncated at token limit. Recovering.")
+            if current_max_tokens < MAX_TOKENS_CEILING:
+                bumped = min(current_max_tokens * 2, MAX_TOKENS_CEILING)
+                await push("communicate", f"⚠️ Output truncated. Bumping cap {current_max_tokens}→{bumped} and recovering.")
+                current_max_tokens = bumped
+            else:
+                await push("communicate", f"⚠️ Output truncated at ceiling ({MAX_TOKENS_CEILING}). Asking model to split.")
             # Anthropic requires tool_result for every tool_use in the assistant message.
             # If we send plain text instead we get a 400. Find all tool_use ids first.
             tool_use_ids = [

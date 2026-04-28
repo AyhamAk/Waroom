@@ -15,3 +15,16 @@ httpx==0.27.2
 mss>=9.0.1
 Pillow>=10.0.0
 pywin32>=306; sys_platform == "win32"
+
+# Game Studio pipeline — Vision Playtester drives the build via a real
+# browser. Install browsers after pip with:  playwright install chromium
+playwright>=1.48.0
+
+# Pause / resume across server restarts — LangGraph sqlite checkpointer.
+# Pin to 2.x line: langgraph 0.2.53 requires langgraph-checkpoint <3.0.
+# aiosqlite must be <0.20: newer aiosqlite removed an internal Connection
+# attribute that langgraph-checkpoint-sqlite 2.0.11 still calls
+# (`'Connection' object has no attribute 'is_alive'`). 0.19 works.
+langgraph-checkpoint-sqlite>=2.0.0,<3.0.0
+langgraph-checkpoint>=2.0.0,<3.0.0
+aiosqlite>=0.19,<0.20

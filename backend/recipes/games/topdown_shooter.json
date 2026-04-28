@@ -1,0 +1,65 @@
+{
+  "name": "topdown_shooter",
+  "match": ["shoot", "shooter", "topdown", "top-down", "twin-stick", "arena", "horde", "swarm", "wave"],
+  "genre": "topdown_shooter",
+  "fallback": false,
+  "art_style_default": "stylized",
+  "core_loop": "Spawn → Move → Aim → Shoot → Kill → Pickup → Survive next wave",
+  "win_condition": "Survive 5 waves OR clear the objective",
+  "lose_condition": "Health reaches zero",
+  "controls": {
+    "WASD": "move",
+    "mouse": "aim",
+    "click_left": "shoot",
+    "shift": "dash (1s cooldown)",
+    "space": "reload",
+    "esc": "pause"
+  },
+  "camera": {
+    "type": "topdown_orthographic",
+    "fov_or_size": 18,
+    "follow_target": "player",
+    "follow_lerp": 0.15,
+    "tilt_deg": 0
+  },
+  "physics": {
+    "gravity": [0, 0, 0],
+    "kind": "kinematic_2d_in_3d_plane",
+    "ground_y": 0
+  },
+  "ai_archetypes": ["chaser_melee", "shooter_ranged", "swarm_runner"],
+  "level_format": "tilemap_grid",
+  "level_size_default": [40, 40],
+  "asset_requirements": {
+    "player": {"type": "character", "primary_color": "from_brief"},
+    "enemies": ["chaser", "shooter", "swarm"],
+    "props": ["crate", "barrel", "pillar", "ammo_pickup", "health_pickup"],
+    "environment": ["floor_tile", "wall_tile"],
+    "vfx": ["muzzle_flash", "blood_splat", "explosion", "pickup_sparkle"]
+  },
+  "lighting_preset": "stylized_topdown_punch",
+  "post_fx_preset": "stylized_topdown_punch",
+  "use_csm": false,
+  "csm_cascades": 2,
+  "csm_max_far": 60,
+  "csm_shadow_size": 1024,
+  "fog_kind": "linear_short",
+  "shader_features": ["bloom", "ssao", "vignette", "chromatic_aberration"],
+  "audio_requirements": {
+    "music": ["combat_loop", "menu_ambient"],
+    "sfx": ["shoot", "hit", "die", "pickup", "reload", "footstep", "ui_click"]
+  },
+  "perf_budget": {
+    "target_fps": 60,
+    "max_triangles": 800000,
+    "max_draw_calls": 80,
+    "max_lights": 6,
+    "texture_memory_mb": 150
+  },
+  "playtest_objectives": [
+    "Player can move and aim within 2 seconds of load",
+    "First enemy contact happens within 10 seconds",
+    "Killing an enemy plays a clear audio + visual cue",
+    "Frame time stays under 16.6ms during combat"
+  ]
+}

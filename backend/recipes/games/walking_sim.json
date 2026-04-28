@@ -1,0 +1,63 @@
+{
+  "name": "walking_sim",
+  "match": ["walking sim", "walking simulator", "exploration", "atmospheric", "vignette", "experience", "art piece", "narrative"],
+  "genre": "walking_sim",
+  "fallback": true,
+  "art_style_default": "stylized",
+  "core_loop": "Walk → Observe → Trigger narrative beat → Move on",
+  "win_condition": "Reach the final scene",
+  "lose_condition": "None — pure exploration",
+  "controls": {
+    "WASD": "move",
+    "mouse": "look",
+    "shift": "sprint",
+    "e": "interact",
+    "esc": "pause"
+  },
+  "camera": {
+    "type": "first_person",
+    "fov_or_size": 75,
+    "follow_target": "player_head",
+    "headbob_amplitude": 0.03,
+    "headbob_speed": 5
+  },
+  "physics": {
+    "gravity": [0, -15, 0],
+    "kind": "kinematic_capsule",
+    "move_speed": 4.5,
+    "sprint_mult": 1.6,
+    "jump_velocity": 0
+  },
+  "level_format": "open_zone_with_triggers",
+  "asset_requirements": {
+    "player_hands": {"type": "none"},
+    "interactables": ["note", "door", "object_of_interest"],
+    "environment": ["terrain", "foliage_grass", "foliage_tree", "rocks", "skybox_hdri", "fog_volume"],
+    "vfx": ["dust_motes", "godrays", "footstep_dust"]
+  },
+  "lighting_preset": "golden_hour_outdoor",
+  "post_fx_preset": "filmic_dreamy",
+  "use_csm": true,
+  "csm_cascades": 4,
+  "csm_max_far": 200,
+  "csm_shadow_size": 4096,
+  "fog_kind": "exp2_haze",
+  "shader_features": ["bloom", "ssao", "dof", "vignette", "chromatic_aberration", "film_grain"],
+  "audio_requirements": {
+    "music": ["ambient_drone", "narrative_swell"],
+    "sfx": ["footstep_grass", "footstep_wood", "wind", "interact_chime", "narration_ping"]
+  },
+  "perf_budget": {
+    "target_fps": 60,
+    "max_triangles": 2000000,
+    "max_draw_calls": 100,
+    "max_lights": 3,
+    "texture_memory_mb": 300
+  },
+  "playtest_objectives": [
+    "First narrative trigger fires within 30 seconds",
+    "Camera and movement feel grounded — no jitter, no clip-through",
+    "Atmosphere reads (lighting, music, ambience all present)",
+    "Frame time stays under 16.6ms in the densest scene"
+  ]
+}

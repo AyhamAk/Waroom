@@ -48,6 +48,10 @@
         <span class="studio-tab-icon">🎬</span>
         <span class="studio-tab-label">BLENDER STUDIO</span>
       </button>
+      <button class="studio-tab" id="tab-game3d-studio" onclick="switchStudioMode('game3d')">
+        <span class="studio-tab-icon">🎮</span>
+        <span class="studio-tab-label">3D GAME STUDIO</span>
+      </button>
     </div>
   </div>
 
@@ -321,6 +325,118 @@
     </div>
   </div>
 
+  <!-- ═══════════ 3D GAME STUDIO ═══════════ -->
+  <section id="game3d-studio" class="blender-studio-section" hidden>
+    <div class="live-controls blender-controls">
+      <div class="ctrl-left">
+        <div class="bs-mode-badge"><span class="bs-mode-dot"></span>3D GAME STUDIO</div>
+        <div id="g3-status" class="bs-render-status">STANDBY</div>
+      </div>
+      <div class="ctrl-right">
+        <div class="live-stat"><span class="ls-label">UPTIME</span><span class="ls-val" id="g3-timer">00:00:00</span></div>
+        <div class="live-stat g3-stat-prominent"><span class="ls-label">TOKENS</span><span class="ls-val" id="g3-tokens">0</span></div>
+        <span class="g3-ctrl-divider" aria-hidden="true"></span>
+        <button class="ctrl-btn" id="g3-pause-btn" onclick="game3dTogglePause()" hidden>⏸ PAUSE</button>
+        <button class="ctrl-btn new-mission-live-btn" id="g3-stop-btn" onclick="game3dStop()">■ STOP</button>
+      </div>
+    </div>
+
+    <!-- Resume banner — shown when there's a paused session waiting on disk -->
+    <div id="g3-resume-banner" class="bs-resume-banner" hidden>
+      <span class="brief-prompt">↻</span>
+      <div class="g3-resume-info">
+        <strong>Paused session available</strong>
+        <span id="g3-resume-info-line">—</span>
+      </div>
+      <div class="g3-resume-actions">
+        <button class="ctrl-btn" id="g3-resume-now-btn" onclick="game3dResumeFromDisk()">▶ RESUME</button>
+        <button class="ctrl-btn ghost" onclick="document.getElementById('g3-resume-banner').hidden=true">DISMISS</button>
+      </div>
+    </div>
+
+    <div class="live-main g3-live-main">
+      <div class="live-left bs-left">
+        <div class="live-panels g3-panel-stack">
+          <div class="live-panel bs-input-panel" id="g3-input-panel">
+            <div class="panel-title">GAME BRIEF</div>
+            <div class="g3-brief-summary" id="g3-brief-summary" hidden>
+              <div class="g3-brief-summary-row">
+                <span class="g3-brief-label">MISSION</span>
+                <span class="g3-brief-text" id="g3-brief-summary-text">—</span>
+              </div>
+              <button class="g3-brief-edit" type="button" onclick="g3EditBrief()">↻ NEW MISSION</button>
+            </div>
+            <div class="bs-form" id="g3-form">
+              <div class="bs-field-group">
+                <label class="field-label" for="g3-api-key">// ANTHROPIC API KEY</label>
+                <input id="g3-api-key" type="password" class="mode-key-input" placeholder="sk-ant-..."
+                       style="width:100%;margin-top:4px;"
+                       oninput="if(typeof state!=='undefined') state.apiKey=this.value.trim()" />
+              </div>
+              <div class="bs-field-group">
+                <label class="field-label" for="g3-brief">// GAME DESCRIPTION</label>
+                <div class="brief-wrap">
+                  <span class="brief-prompt">▶</span>
+                  <textarea id="g3-brief" class="brief-textarea bs-textarea" rows="3"
+                            placeholder="Describe the game... e.g. 'top-down twin-stick shooter, neon arena, swarms of slime enemies, dash + shotgun'"></textarea>
+                </div>
+              </div>
+              <div class="bs-field-group">
+                <label class="field-label">// GENRE</label>
+                <select id="g3-genre" class="mode-key-input" style="width:100%;margin-top:4px;">
+                  <option value="auto">AUTO-DETECT</option>
+                  <option value="topdown_shooter">TOP-DOWN SHOOTER</option>
+                  <option value="platformer_3d">3D PLATFORMER</option>
+                  <option value="fps_arena">FPS ARENA</option>
+                  <option value="walking_sim">WALKING SIM</option>
+                </select>
+              </div>
+              <div class="bs-field-group">
+                <label class="field-label">// ART STYLE</label>
+                <select id="g3-style" class="mode-key-input" style="width:100%;margin-top:4px;">
+                  <option value="stylized">STYLIZED</option>
+                  <option value="realistic">REALISTIC PBR</option>
+                  <option value="toon">TOON</option>
+                  <option value="low_poly">LOW POLY</option>
+                  <option value="pixel_3d">PIXEL 3D</option>
+                </select>
+              </div>
+              <button class="deploy-btn" id="g3-deploy-btn" onclick="game3dStart()">
+                <span class="deploy-icon">⚡</span> DEPLOY GAME STUDIO
+              </button>
+            </div>
+          </div>
+
+          <div class="live-panel">
+            <div class="panel-title">3D GAME PIPELINE AGENTS</div>
+            <div class="bs-agent-desks" id="g3-agent-desks"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="live-right bs-right">
+        <div class="live-panel bs-preview-panel g3-preview-panel">
+          <div class="panel-title">
+            LIVE PREVIEW
+            <span id="g3-preview-badge" class="g3-preview-badge g3-preview-standby">STANDBY</span>
+          </div>
+          <div class="g3-preview-wrap">
+            <iframe id="g3-preview-iframe" class="bs-render-img g3-preview-iframe" src="about:blank"></iframe>
+            <div id="g3-preview-error" class="g3-preview-error" hidden>
+              <div class="g3-preview-error-title">PREVIEW ERROR</div>
+              <div id="g3-preview-error-msg" class="g3-preview-error-msg"></div>
+              <button class="g3-preview-error-retry" onclick="g3PreviewRefresh(true)">↻ RETRY</button>
+            </div>
+          </div>
+        </div>
+        <div class="live-panel g3-playtest-panel">
+          <div class="panel-title">PLAYTEST FEED</div>
+          <div id="g3-playtest-feed" class="g3-playtest-feed"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ═══════════ BLENDER STUDIO ═══════════ -->
   <section id="blender-studio" class="blender-studio-section" hidden>
 
@@ -494,6 +610,7 @@
   <script src="phase3.js"></script>
   <script src="phase4.js"></script>
   <script src="blender-studio.js"></script>
+  <script src="game-studio-3d.js"></script>
   <script src="init.js"></script>
 </body>
 </html>
