@@ -2,110 +2,97 @@
 
 A multi-agent AI simulation where autonomous agents plan, design, and ship a real product together — live in your browser.
 
-You write a brief. Pick your team. Hit start. Six AI agents wake up, collaborate, and build a working website in real time — cycling forever, improving every round.
+You write a brief. Pick your team. Hit start. AI agents wake up, collaborate over a streaming SSE feed, and build a working artifact in real time — cycling, fixing, and improving every round.
 
 ---
 
-## Features
+## Studios
 
-- **6 autonomous agents** — CEO, Lead Engineer, Designer, Developer, QA, Sales
-- **Infinite cycles** — agents keep building, improving, and fixing on their own
-- **Live preview** — real HTML/CSS/JS shipped to your browser every cycle
-- **CEO sees the site** — gets a screenshot before deciding what to build next
-- **Inject a crisis** — production down, investor pulled out, competitor launched
-- **Customer feedback** — drop in as a user mid-session, CEO reprioritizes immediately
-- **Auto-pause** — pipeline pauses when you close the tab, resumes when you return
-- **Multiple company types** — Tech Startup, Game Studio, Film Production, Ad Agency, Newsroom, Consulting
+War Room ships three studios, each with its own pipeline:
+
+| Studio | Agents | Output |
+|--------|--------|--------|
+| **Tech Startup** | CEO, Lead Engineer, Designer, Developer, QA, Sales (and others) | Web apps, dashboards, SaaS products. Multiple categories: Tech Startup, Game Studio (2D), Film Production, Ad Agency, Newsroom, Consulting. |
+| **3D Game Studio** | Game Director, Level Designer, Asset Lead, Engine Engineer, Tech-Art, Gameplay Programmer, Vision Playtester | A playable Three.js game served at `/preview-game`. LangGraph-orchestrated, level/asset/material JSON pipeline, Vite build, vision-based playtester. |
+| **Blender Studio** | Blender Artist (3D), Animator, Renderer, QA | Procedural Blender scenes rendered to PNG/MP4. |
 
 ---
 
 ## Getting Started
 
-**1. Clone and install**
+**1. Clone**
 ```bash
-git clone https://github.com/your-username/warroom.git
+git clone https://github.com/AyhamAk/Waroom.git
 cd warroom
-npm install
 ```
 
-**2. Add your API key**
+**2. Install Python deps**
 ```bash
-cp .env.example .env
+cd backend
+pip install -r requirements.txt
 ```
-Open `.env` and replace the placeholder with your key (see API Keys below).
 
-**3. Run**
-```bash
-npm start
-```
-Open [http://localhost:3000](http://localhost:3000)
-
----
-
-## API Keys
-
-War Room supports two providers. You only need one.
-
-### Anthropic Claude (recommended)
-Best results. Paid — charged per token.
-Get your key at [console.anthropic.com](https://console.anthropic.com)
-
+**3. Add your API key**
+Create `.env` at the repo root:
 ```env
 ANTHROPIC_API_KEY=your_key_here
 ```
 
-### Google Gemini (free tier available)
-Free quota available. Good for experimentation.
-Get your key at [aistudio.google.com](https://aistudio.google.com)
-
-```env
-GOOGLE_API_KEY=your_key_here
+**4. Run**
+```bash
+cd backend && python main.py
 ```
+Open [http://localhost:3000](http://localhost:3000).
 
-You select which provider to use in the app UI before launching a session.
+Switch tabs at the top of the page to enter a studio.
 
 ---
 
 ## How It Works
 
-Each session runs in a continuous loop:
+Each studio runs a continuous loop. The Tech Startup default looks roughly like:
 
 ```
 CEO → Lead Engineer + Designer (parallel) → Developer → QA → repeat
 ```
 
-| Agent | Role |
-|-------|------|
-| **CEO** | Reads current site state + screenshot, decides what to build next |
-| **Lead Engineer** | Writes technical spec based on CEO decision |
-| **Designer** | Writes UI/design spec |
-| **Developer** | Ships real HTML, CSS, and JS every cycle |
-| **QA** | Flags broken logic — CEO reads it next round |
-| **Sales** | Writes cold outreach emails for the product being built |
+The 3D Game Studio runs a LangGraph state machine:
 
-Every cycle the developer builds on top of what was shipped before. The site grows and improves on its own.
+```
+Director → Level Designer → Asset Lead → Engine ↘
+                                                 → Gameplay → Playtester → loop
+                                          Tech-Art ↗
+```
 
----
-
-## Company Categories
-
-| Category | What agents build |
-|----------|------------------|
-| Tech Startup | Web apps, dashboards, SaaS products |
-| Game Studio | Playable HTML5 canvas games |
-| Film Production | Cinematic editorial sites |
-| Ad Agency | High-converting landing pages |
-| Newsroom | Editorial news and magazine sites |
-| Consulting | Strategy decks and professional reports |
+Agents stream their thinking and tool calls over an SSE feed (`/api/stream`). The frontend renders a live agent roster, status badges, and a preview iframe that auto-refreshes when the build artifact changes.
 
 ---
 
 ## Stack
 
-- **Backend** — Node.js, Express
-- **AI** — Anthropic Claude API / Google Gemini API
+- **Backend** — Python (FastAPI + uvicorn), LangGraph for the 3D pipeline, Anthropic SDK with prompt caching
+- **AI** — Anthropic Claude (streaming, tool use)
 - **Real-time** — Server-Sent Events (SSE)
-- **Frontend** — Vanilla JS, no framework
+- **Frontend** — Vanilla JS, no build step (loaded directly from `public/`)
+- **Preview runtime** — Vite-built Three.js bundle served from the active session's workspace
+
+---
+
+## Project layout
+
+```
+backend/
+├── main.py                  FastAPI app: studios, SSE, preview routing
+├── agents/                  Per-agent tool loops (base.py is the engine)
+├── graph/                   LangGraph state machine for 3D Game Studio
+├── recipes/games/           Genre recipes (top-down shooter, FPS arena, …)
+├── templates/game_base/     Vite + Three.js project template the agents extend
+├── tools/                   File ops, asset bridge, vision playtester
+└── assets/                  Bundled HDRIs, textures, sounds
+
+public/                      Static frontend, no build step
+workspace/                   Per-session generated artifacts (gitignored)
+```
 
 ---
 
