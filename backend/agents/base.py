@@ -101,6 +101,11 @@ async def run_agent_with_tools(
         # Stream the response in a thread — keeps event loop free AND avoids the
         # 120s single-call timeout on long generations (16K-token Builder outputs
         # routinely take 130-180s, which used to kill the call mid-write).
+        # Text deltas are forwarded to SSE clients live so users see characters
+        # appear as Claude types them.
+        stream_msg_id = f"{agent_id}-{iteration}-{int(time.time() * 1000)}"
+        streamed_parts: list[str] = []
+
         try:
             msgs_snapshot = list(messages)
             tokens_for_call = current_max_tokens
@@ -113,6 +118,27 @@ async def run_agent_with_tools(
                     tools=effective_tools,
                     messages=msgs_snapshot,
                 ) as stream:
+                    for chunk in stream.text_stream:
+                        if not chunk:
+                            continue
+                        streamed_parts.append(chunk)
+                        # Schedule SSE emit on the asyncio loop from this thread.
+                        asyncio.run_coroutine_threadsafe(
+                            emit("agent-stream", {
+                                "from": agent_id,
+                                "messageId": stream_msg_id,
+                                "delta": chunk,
+                            }),
+                            loop,
+                        )
+                    asyncio.run_coroutine_threadsafe(
+                        emit("agent-stream", {
+                            "from": agent_id,
+                            "messageId": stream_msg_id,
+                            "done": True,
+                        }),
+                        loop,
+                    )
                     return stream.get_final_message()
 
             response = await loop.run_in_executor(None, _stream_sync)
@@ -121,6 +147,12 @@ async def run_agent_with_tools(
         except Exception as exc:
             await push("communicate", f"⚠️ API error: {str(exc)[:120]}")
             break
+
+        # Persist the full streamed prose to the session log (SSE already
+        # delivered it character-by-character — don't re-emit).
+        full_streamed = "".join(streamed_parts).strip()
+        if full_streamed and session and session.get("workspace_dir"):
+            _log(session["workspace_dir"], agent_id, "communicate", full_streamed[:400])
 
         # Billed-input tokens differentiate cache writes (1.25x) from reads (0.1x).
         # We bill cache_read at 10% since it's 90% cheaper than normal input.
@@ -144,11 +176,7 @@ async def run_agent_with_tools(
             hit_rate = cache_read / max(cache_read + cache_create + raw_input, 1)
             await push("communicate", f"cache_hit: {cache_read}t read ({hit_rate:.0%})")
 
-        # Surface agent thinking text
-        for block in response.content:
-            if hasattr(block, "text") and block.text and block.text.strip():
-                display = block.text.strip()[:400]
-                await push("communicate", display)
+        # Agent thinking text was already streamed live above; nothing to re-emit.
 
         if response.stop_reason == "end_turn":
             final_text = " ".join(

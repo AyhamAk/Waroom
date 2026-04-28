@@ -154,6 +154,34 @@ function _wireG3SSE(es) {
     if (d.from && d.message) _g3UpdateStatusLine(d.from, d.message);
   });
 
+  // Live token streaming — append deltas to a single bubble per call so
+  // viewers see characters appear as Claude types them.
+  es.addEventListener('agent-stream', (ev) => {
+    const d = JSON.parse(ev.data);
+    const feed = document.getElementById('g3-feed-' + d.from);
+    if (!feed) return;
+    let line = feed.querySelector(`[data-stream-id="${d.messageId}"]`);
+    if (!line) {
+      line = document.createElement('div');
+      line.className = 'bs-feed-line g3-streaming';
+      line.dataset.streamId = d.messageId;
+      feed.appendChild(line);
+      while (feed.children.length > 60) feed.removeChild(feed.firstChild);
+    }
+    if (d.delta) {
+      line.textContent += d.delta;
+      // Keep the live bubble visible at the bottom of the feed.
+      feed.scrollTop = feed.scrollHeight;
+      // Also surface the latest sentence into the agent's status-line card.
+      const accumulated = line.textContent;
+      const lastSentence = accumulated.split('\n').pop().slice(-160);
+      _g3UpdateStatusLine(d.from, lastSentence);
+    }
+    if (d.done) {
+      line.classList.remove('g3-streaming');
+    }
+  });
+
   es.addEventListener('token-update', (ev) => {
     const d = JSON.parse(ev.data);
     const $t = document.getElementById('g3-tokens');

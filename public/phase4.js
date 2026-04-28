@@ -228,6 +228,45 @@ function connectSSE() {
     if (msg.from && msg.from !== 'system') updateDeskBubble(msg.from, msg.message);
   });
 
+  // Live token streaming — append deltas to a single bubble per call so
+  // viewers watch characters appear as Claude types them.
+  es.addEventListener('agent-stream', e => {
+    const d = JSON.parse(e.data);
+    if (!d.from || !d.messageId) return;
+    let el = $commFeed.querySelector(`[data-stream-id="${d.messageId}"]`);
+    if (!el) {
+      const fromMeta = LIVE_AGENT_META[d.from] || { name: d.from, color: '#888', bg: 'rgba(128,128,128,0.1)', abbr: '?' };
+      const pid = PORTRAIT_ID_MAP[d.from] || d.from;
+      const time = new Date().toTimeString().slice(0, 8);
+      el = document.createElement('div');
+      el.className = 'feed-msg type-communicate g3-streaming';
+      el.dataset.streamId = d.messageId;
+      el.innerHTML = `
+        <div class="feed-avatar-sm" style="background:${fromMeta.bg};color:${fromMeta.color};border:1px solid ${fromMeta.color}">
+          <div style="width:100%;height:100%;border-radius:50%;overflow:hidden">${PORTRAITS[pid]||fromMeta.abbr}</div>
+        </div>
+        <div class="feed-body">
+          <div class="feed-meta">
+            <span class="feed-sender" style="color:${fromMeta.color}">${fromMeta.name}</span>
+            <span class="feed-time">${time}</span>
+          </div>
+          <div class="feed-text" data-stream-text></div>
+        </div>`;
+      $commFeed.appendChild(el);
+      liveState.msgCount++;
+      $msgCount.textContent = `${liveState.msgCount} message${liveState.msgCount !== 1 ? 's' : ''}`;
+    }
+    if (d.delta) {
+      const $text = el.querySelector('[data-stream-text]');
+      if ($text) $text.textContent += d.delta;
+      $commFeed.scrollTop = $commFeed.scrollHeight;
+      if (d.from !== 'system') updateDeskBubble(d.from, d.delta);
+    }
+    if (d.done) {
+      el.classList.remove('g3-streaming');
+    }
+  });
+
   es.addEventListener('new-file', e => {
     const f = JSON.parse(e.data);
     liveState.files[f.path] = f;
