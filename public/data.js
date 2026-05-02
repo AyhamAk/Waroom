@@ -28,12 +28,14 @@ const PORTRAITS = {
    TEAM CATEGORIES
    ══════════════════════════════════════════════ */
 const CATEGORIES = [
-  { id:'tech-startup',    name:'TECH STARTUP',    icon:'⚡', tagline:'Ship a product end-to-end',      color:'#00e676', locked:false },
-  { id:'game-studio',     name:'GAME STUDIO',     icon:'🎮', tagline:'Design & build a game',           color:'#c084fc', locked:false },
-  { id:'film-production', name:'FILM PRODUCTION', icon:'🎬', tagline:'From script to screen',           color:'#fb923c', locked:false },
-  { id:'ad-agency',       name:'AD AGENCY',       icon:'📣', tagline:'Campaign strategy & creative',   color:'#38bdf8', locked:false },
-  { id:'newsroom',        name:'NEWSROOM',        icon:'📰', tagline:'Investigate, write, publish',    color:'#f87171', locked:false },
-  { id:'consulting',      name:'CONSULTING',      icon:'📊', tagline:'Strategy, data & delivery',      color:'#fde047', locked:false },
+  { id:'tech-startup',    name:'PRODUCT STUDIO',  icon:'⚡', tagline:'Apps, websites, dashboards, tools', color:'#00e676', locked:false },
+  { id:'game-studio',     name:'CREATIVE STUDIO', icon:'🎨', tagline:'Games & interactive experiences',  color:'#c084fc', locked:false },
+  { id:'3d-studio',       name:'3D STUDIO',       icon:'🧊', tagline:'3D games & Blender renders',       color:'#22d3ee', locked:false, launcher:true },
+  { id:'data-studio',     name:'DATA STUDIO',     icon:'📈', tagline:'Excel, CSV, dashboards & analysis',color:'#fbbf24', locked:false },
+  { id:'film-production', name:'FILM PRODUCTION', icon:'🎬', tagline:'From script to screen',            color:'#fb923c', locked:false },
+  { id:'ad-agency',       name:'AD AGENCY',       icon:'📣', tagline:'Campaign strategy & creative',     color:'#38bdf8', locked:false },
+  { id:'newsroom',        name:'NEWSROOM',        icon:'📰', tagline:'Investigate, write, publish',      color:'#f87171', locked:false },
+  { id:'consulting',      name:'CONSULTING',      icon:'📊', tagline:'Strategy, data & delivery',        color:'#fde047', locked:false },
 ];
 
 /* ══════════════════════════════════════════════
@@ -85,6 +87,13 @@ const CATEGORY_AGENTS = {
     { id:'co-delivery',   name:'Delivery Manager',      abbr:'DM', role:'Execution Plan',     desc:'Translates strategy into a concrete execution plan.', tokens:80_000, maxOutput:2048, color:'#4ade80', bg:'rgba(74,222,128,0.12)',  system:`You are a Delivery Manager. Write an execution plan: project phases and milestones, resource requirements, critical path dependencies, risk register, and measurable success metrics.` },
     { id:'co-specialist', name:'Industry Expert',       abbr:'IE', role:'Domain Knowledge',   desc:'Provides sector-specific expertise and intelligence.', tokens:100_000, maxOutput:3072, color:'#a3e635', bg:'rgba(163,230,53,0.12)', system:`You are an Industry Expert. Write a market intelligence brief: industry trends, regulatory environment, competitive dynamics, customer behavior shifts, and disruptive forces on the horizon.` },
   ],
+  'data-studio': [
+    { id:'ds-analyst',  name:'Data Analyst',           abbr:'DA',  role:'Scope & KPIs',        desc:'Defines what to measure and how to measure it.',         tokens:80_000,  maxOutput:3072, color:'#fbbf24', bg:'rgba(251,191,36,0.12)',  system:`You are a senior Data Analyst. Read the brief and write a data plan as Markdown. Cover: (1) Objective — the business question being answered. (2) KPIs — the 3-5 most important metrics with exact formulas. (3) Data sources — input files / sheets / tables / APIs that feed the workbook. (4) Schema — expected columns with types and example values. (5) Methodology — calculations, filters, cohorts, time windows, assumptions. (6) Deliverables — the dashboards, reports, and CSV exports the team will produce. Output ONLY the data plan as Markdown. Be concrete and numeric.` },
+    { id:'ds-formula',  name:'Formula Engineer',       abbr:'FE',  role:'Calculations & Models', desc:'Designs formulas, pivots, and sheet architecture.',     tokens:120_000, maxOutput:4096, color:'#4fc3f7', bg:'rgba(79,195,247,0.12)',  system:`You are a Formula Engineer specializing in spreadsheets (Excel + Google Sheets compatible). Read the data plan and design the workbook architecture. Output a Markdown spec listing: (1) Sheets — name, purpose, data source. (2) Named ranges — what each one references. (3) Key formulas — written in canonical Excel/Sheets syntax (e.g. =SUMIFS(Sales!B:B, Sales!A:A, ">="&DATE(2026,1,1))) with a short explanation per formula. (4) Pivot tables — source range, rows / columns / values / filters. (5) Validation rules — data types, dropdowns, range checks. (6) Conditional formatting rules. (7) Edge-case handling — division-by-zero (IFERROR), blank inputs, lookup misses. Be precise enough that a Reporting Lead can implement directly.` },
+    { id:'ds-viz',      name:'Visualization Designer', abbr:'VD',  role:'Charts & Dashboards', desc:'Picks chart types, layouts, and visual hierarchy.',     tokens:90_000,  maxOutput:3072, color:'#c084fc', bg:'rgba(192,132,252,0.12)', system:`You are a Data Visualization Designer (Tufte / Few / Cairo trained). Read the data plan and design the dashboard. Output a Markdown spec covering: (1) Top-line KPIs — 3-5 large headline numbers with their exact position. (2) Chart selections per metric — chart type (bar / line / area / scatter / donut / heatmap / sparkline) with rationale. (3) Color palette — colorblind-friendly hex codes, semantic (green=good, red=bad, neutral grays for context). (4) Layout — grid structure (e.g. 12-column), hierarchy of attention, what the eye should see first / second / third. (5) Annotations — labels, callouts, gridlines that aid interpretation. Reject chart-junk; prefer clarity. Output as a clean Markdown spec.` },
+    { id:'ds-qa',       name:'QA Engineer',            abbr:'QA',  role:'Formula Audit',       desc:'Verifies formulas are correct and edge cases handled.', tokens:35_000,  maxOutput:2048, color:'#34d399', bg:'rgba(52,211,153,0.12)',  system:`You are a QA Engineer for spreadsheets and data products. Read the workbook spec and write a QA plan. Cover: (1) Formula audit — for each key formula, the edge cases that must pass (zero division, blank cells, lookup misses, negative numbers, future dates, outliers, leap years). (2) Data quality checks — row count expectations, null tolerances, type validations. (3) Reconciliation — totals that must match across sheets, sums that must equal, cross-foots. (4) Test scenarios — input sets to feed and expected outputs. (5) Risks — places where the workbook might silently produce wrong answers. Be specific and rigorous.` },
+    { id:'ds-reporter', name:'Reporting Lead',         abbr:'RL',  role:'Final Deliverable',   desc:'Builds the actual dashboard HTML, CSV, and exec summary.', tokens:60_000, maxOutput:8192, color:'#f97316', bg:'rgba(249,115,22,0.12)',  system:`You are a Reporting Lead. Take the data plan, formula spec, and visualization spec and produce the final deliverable. Output THREE files in this order: (1) public/dashboard.html — a single self-contained HTML file with embedded CSS + JS that demonstrates the full dashboard, using Chart.js or ApexCharts via CDN, with realistic sample data hard-coded inline so it actually renders on first open. Dark mode, monospace numerics (JetBrains Mono), clean grid layout, looks like Linear / Stripe / Bloomberg in quality. (2) public/data.csv — the schema with 20-50 example rows. (3) docs/exec-summary.md — plain-English summary of top findings, surprises, and recommended next actions. The HTML dashboard must be visually impressive on first load — that is the deliverable people see first.` },
+  ],
 };
 
 /* ── Agent tag chips ── */
@@ -122,6 +131,11 @@ const AGENT_TAGS = {
   'co-strategy':  ['OPTIONS', 'STRATEGY', 'ROADMAP'],
   'co-delivery':  ['MILESTONES', 'RISKS', 'KPIs'],
   'co-specialist':['TRENDS', 'MARKET', 'INTELLIGENCE'],
+  'ds-analyst':   ['KPIs', 'DATA PLAN', 'METHODOLOGY'],
+  'ds-formula':   ['EXCEL', 'PIVOTS', 'SUMIFS'],
+  'ds-viz':       ['CHARTS', 'DASHBOARD', 'PALETTE'],
+  'ds-qa':        ['AUDIT', 'EDGE CASES', 'RECONCILE'],
+  'ds-reporter':  ['HTML', 'CSV', 'EXEC SUMMARY'],
 };
 
 /* ── Portrait fallback map — reuse existing SVGs for new agent types ── */
@@ -136,6 +150,8 @@ const PORTRAIT_FALLBACK = {
   'nr-photo':'designer',       'nr-checker':'qa',
   'co-director':'pm',  'co-analyst':'cto',        'co-strategy':'legal',
   'co-delivery':'lead-eng',    'co-specialist':'junior-dev',
+  'ds-analyst':'pm',   'ds-formula':'cto',        'ds-viz':'designer',
+  'ds-qa':'qa',        'ds-reporter':'junior-dev',
 };
 
 /* ── Phase 4 live agent meta ── */

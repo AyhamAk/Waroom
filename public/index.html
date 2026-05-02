@@ -64,7 +64,7 @@
       <!-- Hero -->
       <div class="p1-hero">
         <div class="p1-hero-tags">
-          <span class="p1-tag">◈ CLASSIFICATION: TOP SECRET</span>
+          <span class="p1-tag p1-tag--pulse">◈ CLASSIFICATION: TOP SECRET</span>
           <span class="p1-tag p1-tag--amber">◈ CLEARANCE: ALPHA</span>
         </div>
         <h1 class="display-title p1-title">ASSEMBLE<br>YOUR TEAM</h1>
@@ -83,6 +83,13 @@
         <div class="brief-wrap">
           <span class="brief-prompt">▶</span>
           <textarea id="brief-input" class="brief-textarea" placeholder="Describe the product or project you want the team to build. Be specific — agents act autonomously from this point on..." rows="5"></textarea>
+        </div>
+        <div class="brief-meter" id="brief-meter">
+          <span class="brief-meter-chars"><span id="brief-meter-chars-num">0</span> chars</span>
+          <span class="brief-meter-sep">·</span>
+          <span class="brief-meter-tokens">~<span id="brief-meter-tokens-num">0</span> tokens</span>
+          <span class="brief-meter-sep">·</span>
+          <span class="brief-meter-status" id="brief-meter-status">awaiting input</span>
         </div>
       </div>
 

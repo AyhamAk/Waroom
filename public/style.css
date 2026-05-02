@@ -161,16 +161,20 @@ body {
   inset: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(rgba(0,230,118,0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0,230,118,0.04) 1px, transparent 1px);
+    linear-gradient(rgba(0,230,118,0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,230,118,0.05) 1px, transparent 1px);
   background-size: 48px 48px;
   mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 30%, transparent 100%);
   -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 30%, transparent 100%);
-  animation: gridpulse 6s ease-in-out infinite;
+  animation: gridpulse 6s ease-in-out infinite, griddrift 32s linear infinite;
 }
 @keyframes gridpulse {
-  0%,100% { opacity: 0.7; }
+  0%,100% { opacity: 0.6; }
   50%      { opacity: 1; }
+}
+@keyframes griddrift {
+  0%   { background-position:   0px   0px,   0px   0px; }
+  100% { background-position: 96px  48px, -96px  48px; }
 }
 #phase-1 { position: relative; overflow: hidden; }
 
@@ -199,6 +203,22 @@ body {
   color: var(--amber);
   border-color: rgba(255,171,0,0.25);
   background: rgba(255,171,0,0.04);
+}
+/* Slow opacity + glow pulse for the CLASSIFICATION badge. */
+.p1-tag--pulse {
+  animation: classificationPulse 3.4s ease-in-out infinite;
+}
+@keyframes classificationPulse {
+  0%, 100% {
+    opacity: 0.85;
+    box-shadow: 0 0 0 rgba(0,230,118,0);
+    border-color: rgba(0,230,118,0.2);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 12px rgba(0,230,118,0.28);
+    border-color: rgba(0,230,118,0.55);
+  }
 }
 .p1-title {
   font-size: clamp(3rem, 7vw, 5.5rem) !important;
@@ -466,6 +486,17 @@ body {
   justify-content: space-between;
   border-top: 1px solid var(--border);
   padding-top: 0.55rem;
+}
+
+/* "Last run · 12m ago" line under the category card. Hidden when never run. */
+.cat-lastrun {
+  margin-top: 0.4rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.55rem;
+  color: var(--cat-color, var(--accent));
+  letter-spacing: 0.12em;
+  opacity: 0.7;
+  text-transform: uppercase;
 }
 
 .cat-agent-count {
@@ -792,6 +823,17 @@ body {
 
 .budget-bar-fill.danger {
   background: linear-gradient(90deg, var(--red), #ff6d00);
+}
+
+/* Below-20%-remaining alarm — red glow + slow pulse. */
+.budget-bar-fill.alarm {
+  background: linear-gradient(90deg, #ef4444, #ff6d00);
+  box-shadow: 0 0 14px rgba(239, 68, 68, 0.55), 0 0 28px rgba(239, 68, 68, 0.25);
+  animation: budgetAlarmPulse 1.4s ease-in-out infinite;
+}
+@keyframes budgetAlarmPulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(239, 68, 68, 0.45), 0 0 22px rgba(239, 68, 68, 0.18); }
+  50%      { box-shadow: 0 0 18px rgba(239, 68, 68, 0.85), 0 0 36px rgba(239, 68, 68, 0.40); }
 }
 
 .budget-footer {
@@ -2539,10 +2581,137 @@ body {
 .modal-pre code { background: transparent !important; padding: 0 !important; font-size: inherit; }
 
 /* ══════════════════════════════════════════════
+   BRIEF METER — live chars + token estimate
+   ══════════════════════════════════════════════ */
+.brief-meter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 0 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  color: var(--text-muted, #64748b);
+  text-transform: uppercase;
+  transition: color 0.2s;
+}
+.brief-meter-sep { opacity: 0.4; }
+.brief-meter-chars,
+.brief-meter-tokens {
+  font-variant-numeric: tabular-nums;
+}
+.brief-meter-status {
+  margin-left: auto;
+  color: var(--text-dim, #94a3b8);
+}
+.brief-meter--ready  .brief-meter-status { color: #00e676; }
+.brief-meter--long   .brief-meter-status { color: var(--amber, #fbbf24); }
+.brief-meter--toolong .brief-meter-status { color: #ef4444; }
+
+/* ══════════════════════════════════════════════
+   3D STUDIO LAUNCHER (sub-selector overlay)
+   Triggered when user clicks the 3D Studio card.
+   Routes into existing #game3d-studio or #blender-studio.
+   ══════════════════════════════════════════════ */
+.p1-launcher-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(7, 9, 15, 0.78);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: launcherFadeIn 0.18s ease;
+}
+@keyframes launcherFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.p1-launcher-card {
+  position: relative;
+  background: linear-gradient(160deg, var(--bg-card) 0%, var(--bg-panel) 100%);
+  border: 1px solid var(--border-lit);
+  border-radius: 14px;
+  padding: 36px 40px 32px;
+  max-width: 560px;
+  width: calc(100% - 48px);
+  box-shadow: 0 24px 64px rgba(0,0,0,0.55);
+}
+.p1-launcher-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.22em;
+  color: #22d3ee;
+  margin-bottom: 8px;
+}
+.p1-launcher-title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 1.7rem;
+  letter-spacing: 0.04em;
+  margin-bottom: 22px;
+}
+.p1-launcher-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 540px) {
+  .p1-launcher-options { grid-template-columns: 1fr; }
+}
+.p1-launcher-opt {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 22px 18px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  transition: border-color 0.18s, background 0.18s, transform 0.18s;
+}
+.p1-launcher-opt:hover {
+  border-color: #22d3ee;
+  background: rgba(34, 211, 238, 0.06);
+  transform: translateY(-2px);
+}
+.p1-launcher-opt-icon { font-size: 1.6rem; margin-bottom: 8px; }
+.p1-launcher-opt-name {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 1.1rem;
+  letter-spacing: 0.06em;
+  color: #22d3ee;
+  margin-bottom: 4px;
+}
+.p1-launcher-opt-sub {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.p1-launcher-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.p1-launcher-close:hover { border-color: var(--text); color: var(--text); }
+
+/* ══════════════════════════════════════════════
    STUDIO MODE TABS — topbar
    ══════════════════════════════════════════════ */
 
-.studio-subbar {
+/* Hidden — studios are now accessed via the assemble-page cards.
+   The DOM stays for backward-compat with switchStudioMode() callers. */
+.studio-subbar { display: none !important; }
+
+.studio-subbar.legacy-show {
   position: fixed;
   top: 56px;
   left: 0;

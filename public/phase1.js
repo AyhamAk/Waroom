@@ -36,6 +36,16 @@ function buildAgentGrid() {
   });
 }
 
+/* Format a timestamp as a human-readable relative time. */
+function _relativeTime(ts) {
+  const dt = Date.now() - ts;
+  if (dt < 60_000)         return 'just now';
+  if (dt < 3_600_000)      return `${Math.floor(dt / 60_000)}m ago`;
+  if (dt < 86_400_000)     return `${Math.floor(dt / 3_600_000)}h ago`;
+  if (dt < 7 * 86_400_000) return `${Math.floor(dt / 86_400_000)}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
 function buildCategoryRow() {
   const row = document.getElementById('category-row');
   if (!row) return;
@@ -46,6 +56,12 @@ function buildCategoryRow() {
     card.dataset.id = cat.id;
     card.style.setProperty('--cat-color', cat.color);
     const agentCount = (CATEGORY_AGENTS[cat.id] || []).length;
+    const lastRun = (() => {
+      try {
+        const ts = parseInt(localStorage.getItem('warroom_lastrun_' + cat.id) || '0', 10);
+        return ts > 0 ? `LAST RUN · ${_relativeTime(ts)}` : '';
+      } catch { return ''; }
+    })();
     card.innerHTML = `
       <div class="cat-corner tl"></div><div class="cat-corner tr"></div>
       <div class="cat-corner bl"></div><div class="cat-corner br"></div>
@@ -53,13 +69,64 @@ function buildCategoryRow() {
       <div class="cat-name">${cat.name}</div>
       <div class="cat-tagline">${cat.tagline}</div>
       <div class="cat-footer">
-        <span class="cat-agent-count">${agentCount > 0 ? agentCount + ' AGENTS' : '—'}</span>
+        <span class="cat-agent-count">${agentCount > 0 ? agentCount + ' AGENTS' : (cat.launcher ? 'LAUNCHER' : '—')}</span>
         ${cat.locked ? '<span class="cat-lock-badge">SOON</span>' : '<span class="cat-active-badge">ACTIVE</span>'}
-      </div>`;
+      </div>
+      ${lastRun ? `<div class="cat-lastrun">${lastRun}</div>` : ''}`;
     if (!cat.locked) {
-      card.addEventListener('click', () => selectCategory(cat.id));
+      card.addEventListener('click', () => {
+        // Launcher cards bypass the assemble flow and open a sub-selector
+        // (e.g. 3D Studio offers 3D Game vs Blender Animation pipelines).
+        if (cat.launcher) {
+          if (cat.id === '3d-studio' && typeof open3DStudioPicker === 'function') {
+            open3DStudioPicker();
+            return;
+          }
+        }
+        selectCategory(cat.id);
+      });
     }
     row.appendChild(card);
+  });
+}
+
+/* Sub-selector for the 3D Studio launcher card. Routes the user into
+   either the existing #game3d-studio or #blender-studio top-level
+   sections via switchStudioMode(). */
+function open3DStudioPicker() {
+  if (document.getElementById('p1-3d-picker')) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'p1-3d-picker';
+  overlay.className = 'p1-launcher-overlay';
+  overlay.innerHTML = `
+    <div class="p1-launcher-card">
+      <div class="p1-launcher-eyebrow">3D STUDIO</div>
+      <h3 class="p1-launcher-title">Pick a pipeline</h3>
+      <div class="p1-launcher-options">
+        <button class="p1-launcher-opt" data-pick="game3d">
+          <div class="p1-launcher-opt-icon">🎮</div>
+          <div class="p1-launcher-opt-name">3D Game</div>
+          <div class="p1-launcher-opt-sub">7-agent LangGraph pipeline · Three.js + Vite</div>
+        </button>
+        <button class="p1-launcher-opt" data-pick="blender">
+          <div class="p1-launcher-opt-icon">🎬</div>
+          <div class="p1-launcher-opt-name">Blender Animation</div>
+          <div class="p1-launcher-opt-sub">Procedural Blender scenes · PNG / MP4 renders</div>
+        </button>
+      </div>
+      <button class="p1-launcher-close" aria-label="Close">×</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+  overlay.querySelector('.p1-launcher-close')?.addEventListener('click', () => overlay.remove());
+  overlay.querySelectorAll('.p1-launcher-opt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const pick = btn.dataset.pick;
+      overlay.remove();
+      if (typeof switchStudioMode === 'function') switchStudioMode(pick);
+    });
   });
 }
 
@@ -96,8 +163,10 @@ function updateBudgetMeter() {
   $budgetDisp.textContent = `${fmtNum(cost)} / ${fmtNum(TOTAL_BUDGET)}`;
   $budgetFill.style.width = `${pct}%`;
   $budgetPct.textContent = `${pct.toFixed(1)}% of budget committed`;
-  $budgetFill.classList.toggle('warn',   pct >= 60 && pct < 85);
-  $budgetFill.classList.toggle('danger', pct >= 85);
+  $budgetFill.classList.toggle('warn',   pct >= 60 && pct < 80);
+  $budgetFill.classList.toggle('danger', pct >= 80 && pct < 95);
+  // Below-20%-remaining alarm: red glow + slow pulse on the bar.
+  $budgetFill.classList.toggle('alarm',  pct >= 80);
   if (state.currentPhase === 1) updateTopbarBudget(TOTAL_BUDGET - cost);
 }
 
@@ -176,10 +245,49 @@ function selectMode(mode) {
 }
 
 /* ── Event listeners ── */
-$brief.addEventListener('input', updateDeployBtn);
+$brief.addEventListener('input', () => { updateDeployBtn(); updateBriefMeter(); });
 $deployBtn.addEventListener('click', () => {
   state.brief = $brief.value.trim();
   if (!state.brief || !state.selectedAgents.length) return;
+  // Stamp this category's last-run time so the card displays it on return.
+  if (state.selectedCategory) {
+    try { localStorage.setItem('warroom_lastrun_' + state.selectedCategory, String(Date.now())); } catch {}
+  }
   startMission();
 });
 $goLiveBtn.addEventListener('click', () => startLiveMode());
+
+/* ══════════════════════════════════════════════
+   BRIEF METER — live chars + token estimate
+   Token estimate: ~4 chars per token (rough Anthropic average).
+   Status thresholds: ready (50–800 chars), long (800–1500), toolong (>1500).
+   ══════════════════════════════════════════════ */
+function updateBriefMeter() {
+  const $meter   = document.getElementById('brief-meter');
+  const $chars   = document.getElementById('brief-meter-chars-num');
+  const $tokens  = document.getElementById('brief-meter-tokens-num');
+  const $status  = document.getElementById('brief-meter-status');
+  if (!$meter || !$chars || !$tokens || !$status) return;
+  const text  = ($brief.value || '');
+  const chars = text.length;
+  const tokens = Math.ceil(chars / 4);
+  $chars.textContent  = chars.toLocaleString();
+  $tokens.textContent = tokens.toLocaleString();
+  $meter.classList.remove('brief-meter--ready', 'brief-meter--long', 'brief-meter--toolong');
+  if (chars === 0) {
+    $status.textContent = 'awaiting input';
+  } else if (chars < 50) {
+    $status.textContent = 'too short — be more specific';
+  } else if (chars <= 800) {
+    $status.textContent = 'ready · good detail';
+    $meter.classList.add('brief-meter--ready');
+  } else if (chars <= 1500) {
+    $status.textContent = 'getting long — agents handle this fine';
+    $meter.classList.add('brief-meter--long');
+  } else {
+    $status.textContent = 'very long — consider trimming';
+    $meter.classList.add('brief-meter--toolong');
+  }
+}
+// Initial state on load
+updateBriefMeter();
