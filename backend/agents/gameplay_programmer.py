@@ -129,11 +129,24 @@ The Engine instance is passed to your Game class. You use:
 The runtime fetches two JSON files at boot — both already live in the
 Vite project's public/ folder so they're served at root:
 
-  /asset-manifest.json   — Asset Lead's output. Each entry has:
-      type:    "gltf"     → load via engine.assets.loadGltf(id, entry.path)
+  /asset-manifest.json   — Asset Lead's output. THE MANIFEST IS A FLAT
+                           OBJECT keyed by asset id. There is NO `.assets`
+                           wrapper. Concrete shape:
+      {
+        "floor":  {"id": "floor",  "type": "procedural", "kind": "cube",
+                   "color": "#222", "metallic": 0.5, "roughness": 0.5, ...},
+        "pillar": {"id": "pillar", "type": "gltf",
+                   "path": "assets/pillar.glb", "anims": ["spin"], ...},
+        ...
+      }
+      Each entry has:
+      type:    "gltf"       → load via engine.assets.loadGltf(id, entry.path)
       type:    "procedural" → built lazily later via engine.assets.primitive()
       anims:   [...]        → present on rigged glTFs
       tags:    [...]        → for runtime filtering if needed
+      DO NOT WRITE manifest.assets. That key does not exist and accessing
+      it will throw `Cannot convert undefined or null to object` on boot.
+      The correct iteration is Object.entries(manifest), nothing else.
 
   /materials.json         — Tech-Art's output. Has lighting, post_fx,
                             materials.<id>, and block_materials.<name>.
@@ -164,7 +177,10 @@ In preload(), do EXACTLY this:
     });
 
     // 3. Load every gltf asset declared in the manifest IN PARALLEL.
-    const gltfEntries = Object.entries(manifest).filter(([_, e]) => e.type === 'gltf');
+    //    NOTE: manifest is FLAT (asset id → entry). Iterate manifest itself,
+    //    NOT manifest.assets — that property does not exist and would crash.
+    const gltfEntries = Object.entries(manifest)
+      .filter(([_, e]) => e && e.type === 'gltf');
     await Promise.all(gltfEntries.map(([id, entry]) =>
       this.engine.assets.loadGltf(id, entry.path)
     ));
