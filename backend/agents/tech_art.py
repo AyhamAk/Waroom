@@ -145,7 +145,10 @@ material. Keep the palette tight."""
         emit=emit,
         agent_id="tech-art",
         api_key=state["api_key"],
-        max_tokens=4000,
+        # Tech-Art picks palette + post-FX preset + writes per-asset
+        # material params — selection task, low reasoning depth. Haiku 4.5.
+        model="claude-haiku-4-5",
+        max_tokens=3500,
         max_iterations=3,
         session=session,
         stop_after_write=["docs/materials.json"],

@@ -250,7 +250,10 @@ docs/asset-manifest.json with the returned manifest, then stop."""
         emit=emit,
         agent_id="asset-lead",
         api_key=state["api_key"],
-        max_tokens=4000,
+        # Asset Lead is mostly a selection task — pick slots from the
+        # known library + library_summary. Haiku 4.5 is plenty.
+        model="claude-haiku-4-5",
+        max_tokens=3500,
         max_iterations=5,
         session=session,
         stop_after_write=["docs/asset-manifest.json"],
