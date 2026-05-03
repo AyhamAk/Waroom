@@ -40,41 +40,42 @@ def _free_port(start: int = 5174, end: int = 5300) -> int:
 @contextmanager
 def _vite_preview(workspace_dir: str, port: int):
     """
-    Spawn `npm run preview` for the workspace's game/ folder so the bundled
-    build is served at http://localhost:<port>/. Cleans up on exit.
+    Serve the built public/ folder with Python's built-in http.server.
+
+    Previously used `npm run preview` which is unreliable on Windows —
+    the shell subprocess fails to start or times out before the port
+    opens, causing the playtester to report preview_server_failed_to_start
+    even for builds that are perfectly fine.
+
+    Python's http.server:
+    - Is always available (warroom itself runs Python)
+    - Starts in <200ms (no npm shell-spawn overhead)
+    - Reliably handles browser requests with correct MIME types
+    - Requires zero extra dependencies
     """
-    game_dir = Path(workspace_dir) / "game"
+    public_dir = Path(workspace_dir) / "public"
+    if not public_dir.exists() or not (public_dir / "index.html").exists():
+        yield None
+        return
+
     proc: Optional[subprocess.Popen] = None
     try:
-        if not (game_dir / "node_modules").exists():
-            # The pipeline should have run npm install earlier; if not we
-            # try once with a short timeout, otherwise the static fallback
-            # will be used.
-            try:
-                subprocess.run(
-                    ["npm", "install", "--no-audit", "--no-fund"],
-                    cwd=str(game_dir), timeout=120, check=False, shell=(sys.platform == "win32"),
-                )
-            except Exception:
-                pass
-
-        env = {**os.environ, "PORT": str(port)}
         proc = subprocess.Popen(
-            ["npm", "run", "preview", "--", "--port", str(port), "--strictPort"],
-            cwd=str(game_dir),
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            env=env, shell=(sys.platform == "win32"),
+            [sys.executable, "-m", "http.server", str(port),
+             "--directory", str(public_dir)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
-        # Wait until the port responds (max 12s).
-        deadline = time.time() + 12
+        # Wait until the port is accepting connections (max 6s — should be <1s).
+        deadline = time.time() + 6
         ready = False
         while time.time() < deadline:
             try:
-                with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                with socket.create_connection(("127.0.0.1", port), timeout=0.3):
                     ready = True
                     break
             except OSError:
-                time.sleep(0.25)
+                time.sleep(0.15)
         if not ready:
             yield None
             return
