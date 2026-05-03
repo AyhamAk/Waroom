@@ -62,14 +62,25 @@ function game3dInit() {
     `).join('');
 
     // 3D tilt on hover — character without sacrificing pro feel.
+    // Plus reverse-direction mini-map sync: hovering a card flashes the
+    // matching node in the pipeline mini-map.
     $desks.querySelectorAll('.g3-desk-card').forEach(card => {
+      const agentId = card.dataset.agent;
       card.addEventListener('mousemove', e => {
         const r = card.getBoundingClientRect();
         const x = (e.clientX - r.left) / r.width  - 0.5;
         const y = (e.clientY - r.top)  / r.height - 0.5;
         card.style.transform = `perspective(620px) rotateY(${x * 6}deg) rotateX(${-y * 5}deg)`;
       });
-      card.addEventListener('mouseleave', () => { card.style.transform = ''; });
+      card.addEventListener('mouseenter', () => {
+        const node = document.querySelector(`#g3-mm-nodes .g3-mm-node[data-agent="${agentId}"]`);
+        if (node) node.classList.add('mm-flash');
+      });
+      card.addEventListener('mouseleave', () => {
+        card.style.transform = '';
+        const node = document.querySelector(`#g3-mm-nodes .g3-mm-node[data-agent="${agentId}"]`);
+        if (node) node.classList.remove('mm-flash');
+      });
     });
   }
 
@@ -295,6 +306,9 @@ const G3_FILE_READERS = {
 const _g3MmPositions = {}; // agentId → {cx, cy}
 let _g3MmInited = false;
 
+let _g3MmFilesMoved = 0;
+const NS_SVG = 'http://www.w3.org/2000/svg';
+
 function _g3InitMiniMap() {
   if (_g3MmInited) return;
   const $svg = document.getElementById('g3-minimap');
@@ -302,55 +316,84 @@ function _g3InitMiniMap() {
   const $edges = document.getElementById('g3-mm-edges');
   if (!$svg || !$nodes || !$edges) return;
 
-  const NS = 'http://www.w3.org/2000/svg';
-  const W = 320, H = 110, MARGIN = 26, R = 12;
+  const W = 320, H = 130, MARGIN = 28, R = 13;
   const n = G3_AGENTS.length;
-  // Lay nodes along a gentle arc so the line reads as a pipeline.
+  // Lay nodes along a gentle arc — vertical center pushed down to leave
+  // headroom for comet labels above the pipeline.
   G3_AGENTS.forEach((a, i) => {
     const t = i / (n - 1);
     const cx = MARGIN + t * (W - 2 * MARGIN);
-    const cy = H / 2 + Math.sin(t * Math.PI) * -18; // arc upward
+    const cy = 78 + Math.sin(t * Math.PI) * -16;
     _g3MmPositions[a.id] = { cx, cy };
   });
 
-  // Edges first (under nodes).
+  // Edges with directional gradient — fade from one agent's color to the next.
+  // Defs added first so gradients are referenceable.
+  let defs = $svg.querySelector('defs');
+  if (!defs) {
+    defs = document.createElementNS(NS_SVG, 'defs');
+    $svg.insertBefore(defs, $svg.firstChild);
+  }
   for (let i = 0; i < n - 1; i++) {
-    const a = _g3MmPositions[G3_AGENTS[i].id];
-    const b = _g3MmPositions[G3_AGENTS[i + 1].id];
-    const line = document.createElementNS(NS, 'line');
-    line.setAttribute('x1', a.cx); line.setAttribute('y1', a.cy);
-    line.setAttribute('x2', b.cx); line.setAttribute('y2', b.cy);
+    const a = G3_AGENTS[i], b = G3_AGENTS[i + 1];
+    const pa = _g3MmPositions[a.id], pb = _g3MmPositions[b.id];
+    const grad = document.createElementNS(NS_SVG, 'linearGradient');
+    grad.setAttribute('id', `g3-mm-edge-grad-${i}`);
+    grad.setAttribute('gradientUnits', 'userSpaceOnUse');
+    grad.setAttribute('x1', pa.cx); grad.setAttribute('y1', pa.cy);
+    grad.setAttribute('x2', pb.cx); grad.setAttribute('y2', pb.cy);
+    const s1 = document.createElementNS(NS_SVG, 'stop');
+    s1.setAttribute('offset', '0%');  s1.setAttribute('stop-color', a.color); s1.setAttribute('stop-opacity', '0.55');
+    const s2 = document.createElementNS(NS_SVG, 'stop');
+    s2.setAttribute('offset', '100%'); s2.setAttribute('stop-color', b.color); s2.setAttribute('stop-opacity', '0.55');
+    grad.appendChild(s1); grad.appendChild(s2);
+    defs.appendChild(grad);
+
+    const line = document.createElementNS(NS_SVG, 'line');
+    line.setAttribute('x1', pa.cx); line.setAttribute('y1', pa.cy);
+    line.setAttribute('x2', pb.cx); line.setAttribute('y2', pb.cy);
     line.setAttribute('class', 'g3-mm-edge');
+    line.setAttribute('stroke', `url(#g3-mm-edge-grad-${i})`);
     $edges.appendChild(line);
   }
 
-  // Nodes.
+  // Nodes with halo + filter-driven glow.
   G3_AGENTS.forEach(a => {
     const p = _g3MmPositions[a.id];
-    const g = document.createElementNS(NS, 'g');
+    const g = document.createElementNS(NS_SVG, 'g');
     g.setAttribute('class', 'g3-mm-node');
     g.dataset.agent = a.id;
     g.style.setProperty('--agent-color', a.color);
 
-    const halo = document.createElementNS(NS, 'circle');
+    const halo = document.createElementNS(NS_SVG, 'circle');
     halo.setAttribute('cx', p.cx); halo.setAttribute('cy', p.cy);
-    halo.setAttribute('r', R + 4);
+    halo.setAttribute('r', R + 6);
     halo.setAttribute('class', 'g3-mm-halo');
     g.appendChild(halo);
 
-    const c = document.createElementNS(NS, 'circle');
+    const c = document.createElementNS(NS_SVG, 'circle');
     c.setAttribute('cx', p.cx); c.setAttribute('cy', p.cy);
     c.setAttribute('r', R);
     c.setAttribute('class', 'g3-mm-circle');
     g.appendChild(c);
 
-    const label = document.createElementNS(NS, 'text');
+    const label = document.createElementNS(NS_SVG, 'text');
     label.setAttribute('x', p.cx); label.setAttribute('y', p.cy + 1);
     label.setAttribute('class', 'g3-mm-abbr');
     label.setAttribute('text-anchor', 'middle');
     label.setAttribute('dominant-baseline', 'middle');
     label.textContent = a.abbr;
     g.appendChild(label);
+
+    // Hover-sync: hovering a node highlights the matching agent card.
+    g.addEventListener('mouseenter', () => {
+      const card = document.getElementById('g3-desk-' + a.id);
+      if (card) card.classList.add('mm-hover');
+    });
+    g.addEventListener('mouseleave', () => {
+      const card = document.getElementById('g3-desk-' + a.id);
+      if (card) card.classList.remove('mm-hover');
+    });
 
     $nodes.appendChild(g);
   });
@@ -363,27 +406,87 @@ function _g3MmSetActive(agentId, active) {
   if (node) node.classList.toggle('active', active);
 }
 
-function _g3MmEmitPulse(fromId, toId) {
+/**
+ * Emit a comet from `fromId` toward `toId` with an optional file label
+ * floating with the head and a burst on arrival. Multiple concurrent
+ * pulses are gracefully staggered with small jitter (caller can pass
+ * its own delay).
+ */
+function _g3MmEmitPulse(fromId, toId, opts = {}) {
   const $pulses = document.getElementById('g3-mm-pulses');
   const a = _g3MmPositions[fromId];
   const b = _g3MmPositions[toId];
   if (!$pulses || !a || !b) return;
-  const NS = 'http://www.w3.org/2000/svg';
-  const dot = document.createElementNS(NS, 'circle');
-  dot.setAttribute('cx', a.cx);
-  dot.setAttribute('cy', a.cy);
-  dot.setAttribute('r', 4);
+
   const fromAgent = G3_AGENTS.find(x => x.id === fromId);
-  dot.setAttribute('fill', fromAgent ? fromAgent.color : '#10b981');
-  dot.setAttribute('class', 'g3-mm-pulse');
-  $pulses.appendChild(dot);
-  // Trigger CSS transition on the next frame so the start position renders first.
-  requestAnimationFrame(() => {
-    dot.setAttribute('cx', b.cx);
-    dot.setAttribute('cy', b.cy);
-    dot.style.opacity = '0';
-  });
-  setTimeout(() => dot.remove(), 900);
+  const color = fromAgent ? fromAgent.color : '#10b981';
+  const filename = opts.filename || '';
+  const delay = opts.delay || 0;
+
+  const dx = a.cx - b.cx, dy = a.cy - b.cy;
+  const angle = Math.atan2(dy, dx);
+  const trailLen = 22;
+  const tx = Math.cos(angle) * trailLen;
+  const ty = Math.sin(angle) * trailLen;
+
+  // Group is translated as a unit; children are positioned relative
+  // to the comet's head at (0,0).
+  const g = document.createElementNS(NS_SVG, 'g');
+  g.setAttribute('class', 'g3-mm-comet');
+  g.style.color = color;
+  g.style.transform = `translate(${a.cx}px, ${a.cy}px)`;
+  g.style.opacity = '0';
+
+  const trail = document.createElementNS(NS_SVG, 'line');
+  trail.setAttribute('x1', '0');  trail.setAttribute('y1', '0');
+  trail.setAttribute('x2', String(tx)); trail.setAttribute('y2', String(ty));
+  trail.setAttribute('class', 'g3-mm-comet-trail');
+  g.appendChild(trail);
+
+  const head = document.createElementNS(NS_SVG, 'circle');
+  head.setAttribute('cx', '0'); head.setAttribute('cy', '0');
+  head.setAttribute('r', '5');
+  head.setAttribute('class', 'g3-mm-comet-head');
+  g.appendChild(head);
+
+  if (filename) {
+    const lbl = document.createElementNS(NS_SVG, 'text');
+    lbl.setAttribute('x', '0'); lbl.setAttribute('y', '-12');
+    lbl.setAttribute('class', 'g3-mm-comet-label');
+    lbl.textContent = filename.length > 22 ? filename.slice(-22) : filename;
+    g.appendChild(lbl);
+  }
+
+  $pulses.appendChild(g);
+
+  // Animate over two frames + delay, so initial position renders first.
+  setTimeout(() => {
+    requestAnimationFrame(() => {
+      g.style.opacity = '1';
+      requestAnimationFrame(() => {
+        g.style.transform = `translate(${b.cx}px, ${b.cy}px)`;
+      });
+    });
+  }, delay);
+
+  // Burst on arrival — small expanding ring at destination.
+  setTimeout(() => {
+    const burst = document.createElementNS(NS_SVG, 'circle');
+    burst.setAttribute('cx', String(b.cx));
+    burst.setAttribute('cy', String(b.cy));
+    burst.setAttribute('r', '5');
+    burst.setAttribute('class', 'g3-mm-burst');
+    burst.style.color = color;
+    $pulses.appendChild(burst);
+    requestAnimationFrame(() => {
+      burst.setAttribute('r', '20');
+      burst.style.opacity = '0';
+    });
+    setTimeout(() => burst.remove(), 700);
+    g.style.opacity = '0';
+  }, delay + 750);
+
+  setTimeout(() => g.remove(), delay + 1500);
 }
 
 function _g3MmHandleFile(path, authorId) {
@@ -401,9 +504,36 @@ function _g3MmHandleFile(path, authorId) {
     if (idx >= 0 && idx < G3_AGENTS.length - 1) readers = [G3_AGENTS[idx + 1].id];
   }
   if (!readers) return;
-  readers.forEach(rid => {
-    if (rid !== authorId) _g3MmEmitPulse(authorId, rid);
+
+  // Stagger concurrent pulses so multiple readers don't fire in lockstep.
+  const filename = (path.split('/').pop() || path);
+  const realReaders = readers.filter(rid => rid !== authorId);
+  realReaders.forEach((rid, i) => {
+    _g3MmEmitPulse(authorId, rid, {
+      filename,
+      delay: i * 110 + Math.random() * 60,
+    });
   });
+
+  // Update the data-flow status line + counter in the panel header.
+  if (realReaders.length > 0) {
+    const author = G3_AGENTS.find(a => a.id === authorId);
+    const firstReader = G3_AGENTS.find(a => a.id === realReaders[0]);
+    const more = realReaders.length > 1 ? ` (+${realReaders.length - 1} more)` : '';
+    const $flowText = document.getElementById('g3-mm-flow-text');
+    if ($flowText && author && firstReader) {
+      $flowText.textContent = `${author.name} → ${firstReader.name}${more} · ${filename}`;
+    }
+    _g3MmFilesMoved += realReaders.length;
+    const $counter = document.getElementById('g3-mm-flow-counter');
+    if ($counter) {
+      $counter.textContent = String(_g3MmFilesMoved);
+      $counter.classList.remove('g3-mm-flow-counter--bump');
+      // Force reflow to restart the bump animation
+      void $counter.offsetWidth;
+      $counter.classList.add('g3-mm-flow-counter--bump');
+    }
+  }
 }
 
 // ── Live cost + speed dashboard ─────────────────────────────────────────

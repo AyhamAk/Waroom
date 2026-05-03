@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WAR ROOM // AI COMMAND CENTER</title>
+  <!-- All relative URLs in this page resolve from the site root, not the
+       current path. Required so deep links like /studio/3d-game don't try
+       to fetch /studio/phase4.js etc. -->
+  <base href="/">
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
@@ -421,9 +425,26 @@
           </div>
 
           <div class="live-panel">
-            <div class="panel-title">3D GAME PIPELINE AGENTS</div>
+            <div class="panel-title g3-pipeline-title">
+              <span>3D GAME PIPELINE AGENTS</span>
+              <span class="g3-mm-flow" id="g3-mm-flow">
+                <span class="g3-mm-flow-label">DATAFLOW</span>
+                <span class="g3-mm-flow-text" id="g3-mm-flow-text">awaiting deployment</span>
+                <span class="g3-mm-flow-counter" id="g3-mm-flow-counter">0</span>
+              </span>
+            </div>
             <div class="g3-minimap-wrap">
-              <svg class="g3-minimap" id="g3-minimap" viewBox="0 0 320 110" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              <svg class="g3-minimap" id="g3-minimap" viewBox="0 0 320 130" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                <defs>
+                  <filter id="g3-mm-glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="2.5" result="b"/>
+                    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                  </filter>
+                  <filter id="g3-mm-bigGlow" x="-100%" y="-100%" width="300%" height="300%">
+                    <feGaussianBlur stdDeviation="5" result="b"/>
+                    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                  </filter>
+                </defs>
                 <g class="g3-mm-edges" id="g3-mm-edges"></g>
                 <g class="g3-mm-pulses" id="g3-mm-pulses"></g>
                 <g class="g3-mm-nodes" id="g3-mm-nodes"></g>
@@ -631,6 +652,7 @@
   <script src="phase4.js"></script>
   <script src="blender-studio.js"></script>
   <script src="game-studio-3d.js"></script>
+  <script src="router.js"></script>
   <script src="init.js"></script>
 </body>
 </html>

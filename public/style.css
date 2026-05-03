@@ -3417,31 +3417,99 @@ body {
 
 /* ──────────────────────────────────────────────────────────────────
    Game studio mini-map — pipeline visualization above the agent column.
-   Nodes glow when their agent is active; pulses travel author → readers
-   when files land.
+   Nodes glow when their agent is active; comets fly author → readers
+   when files land, leaving a fading trail and bursting on arrival.
 ────────────────────────────────────────────────────────────────── */
 .g3-minimap-wrap {
   padding: 0.6rem 0.6rem 0.4rem;
-  background: linear-gradient(180deg, rgba(0,0,0,0.18), transparent);
+  background:
+    radial-gradient(ellipse 80% 70% at 50% 60%, rgba(34, 211, 238, 0.04), transparent 70%),
+    linear-gradient(180deg, rgba(0,0,0,0.32), transparent);
   border-bottom: 1px solid var(--border);
 }
 .g3-minimap {
   display: block;
   width: 100%;
   height: auto;
-  max-height: 110px;
+  max-height: 130px;
+  overflow: visible;
 }
 
+/* Pipeline-title flow status line. */
+.g3-pipeline-title {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between !important;
+  gap: 1rem;
+  flex-wrap: nowrap;
+}
+.g3-mm-flow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  min-width: 0;
+  flex: 1;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+.g3-mm-flow-label {
+  color: #22d3ee;
+  letter-spacing: 0.18em;
+  flex-shrink: 0;
+}
+.g3-mm-flow-text {
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.g3-mm-flow-counter {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: #22d3ee;
+  background: rgba(34,211,238,0.10);
+  border: 1px solid rgba(34,211,238,0.35);
+  border-radius: 99px;
+  padding: 1px 8px;
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  transition: transform 0.25s, color 0.25s;
+}
+.g3-mm-flow-counter--bump {
+  animation: g3MmCounterBump 0.5s ease-out;
+}
+@keyframes g3MmCounterBump {
+  0%   { transform: scale(1.0);  color: #22d3ee; }
+  35%  { transform: scale(1.35); color: #fbbf24; box-shadow: 0 0 12px rgba(251,191,36,0.5); }
+  100% { transform: scale(1.0);  color: #22d3ee; }
+}
+
+/* Edges — gradient stroke with subtle pulsing breathe. */
 .g3-mm-edge {
-  stroke: rgba(255,255,255,0.10);
-  stroke-width: 1.4;
+  stroke-width: 1.6;
   fill: none;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 2px rgba(34,211,238,0.35));
+  animation: g3MmEdgeBreathe 4s ease-in-out infinite;
+}
+@keyframes g3MmEdgeBreathe {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 0.85; }
 }
 
+/* Nodes — bright, with a strong halo when active. */
+.g3-mm-node { cursor: pointer; }
 .g3-mm-node .g3-mm-circle {
-  fill: rgba(255,255,255,0.04);
+  fill: rgba(15, 23, 42, 0.9);
   stroke: var(--agent-color);
-  stroke-width: 1.5;
+  stroke-width: 1.8;
   transition: fill 0.3s, stroke-width 0.3s, filter 0.3s;
 }
 .g3-mm-node .g3-mm-halo {
@@ -3451,32 +3519,90 @@ body {
 }
 .g3-mm-node .g3-mm-abbr {
   font-family: 'Bebas Neue', sans-serif;
-  font-size: 7px;
-  letter-spacing: 0.1em;
+  font-size: 8px;
+  letter-spacing: 0.12em;
   fill: var(--agent-color);
   pointer-events: none;
+  filter: drop-shadow(0 0 2px rgba(0,0,0,0.7));
 }
-
-/* Active node — glow in the agent's own colour, halo fades in. */
-.g3-mm-node.active .g3-mm-circle {
-  fill: color-mix(in srgb, var(--agent-color) 18%, transparent);
-  stroke-width: 2;
+.g3-mm-node:hover .g3-mm-circle {
+  fill: color-mix(in srgb, var(--agent-color) 12%, rgba(15,23,42,0.9));
+  stroke-width: 2.4;
   filter: drop-shadow(0 0 6px var(--agent-color));
 }
+
+/* Active node — strong glow + pulsing halo. */
+.g3-mm-node.active .g3-mm-circle {
+  fill: color-mix(in srgb, var(--agent-color) 25%, rgba(15,23,42,0.9));
+  stroke-width: 2.4;
+  filter: url(#g3-mm-glow) drop-shadow(0 0 10px var(--agent-color));
+}
 .g3-mm-node.active .g3-mm-halo {
-  opacity: 0.18;
+  opacity: 0.35;
   animation: g3MmHaloPulse 1.4s ease-in-out infinite;
 }
 @keyframes g3MmHaloPulse {
-  0%, 100% { opacity: 0.10; transform: scale(1); }
-  50%      { opacity: 0.28; transform: scale(1.15); transform-origin: center; }
+  0%, 100% { opacity: 0.20; transform: scale(1); }
+  50%      { opacity: 0.50; transform: scale(1.25); transform-origin: center; }
 }
 
-/* Pulse — a small dot that transitions from author → reader and fades. */
-.g3-mm-pulse {
-  transition: cx 0.85s cubic-bezier(.4,.1,.3,1),
-              cy 0.85s cubic-bezier(.4,.1,.3,1),
-              opacity 0.85s ease-in;
+/* Reverse hover-sync from agent cards: card hovered → node flashes. */
+.g3-mm-node.mm-flash .g3-mm-circle {
+  fill: color-mix(in srgb, var(--agent-color) 35%, rgba(15,23,42,0.9));
+  stroke-width: 2.6;
+  filter: url(#g3-mm-bigGlow) drop-shadow(0 0 14px var(--agent-color));
+}
+.g3-mm-node.mm-flash .g3-mm-halo {
+  opacity: 0.55;
+  animation: g3MmHaloPulse 0.8s ease-in-out infinite;
+}
+
+/* Hover-from-mini-map highlight on agent cards. */
+.g3-desk-card.mm-hover {
+  border-color: var(--agent-color);
+  background: linear-gradient(160deg,
+              color-mix(in srgb, var(--agent-color) 10%, var(--bg-card)) 0%,
+              var(--bg-panel) 100%);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--agent-color) 22%, transparent);
+}
+
+/* ── COMETS ── */
+.g3-mm-comet {
+  transition:
+    transform 0.85s cubic-bezier(0.42, 0.05, 0.30, 1),
+    opacity   0.55s ease-in;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.g3-mm-comet-head {
+  fill: currentColor;
+  filter: drop-shadow(0 0 6px currentColor) drop-shadow(0 0 12px currentColor);
+}
+.g3-mm-comet-trail {
+  stroke: currentColor;
+  stroke-width: 3;
+  stroke-linecap: round;
+  opacity: 0.7;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+.g3-mm-comet-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 6.5px;
+  fill: currentColor;
+  text-anchor: middle;
+  pointer-events: none;
+  letter-spacing: 0.05em;
+  filter: drop-shadow(0 0 2px rgba(0,0,0,0.9));
+  font-weight: 500;
+}
+
+/* Burst on arrival — expanding ring. */
+.g3-mm-burst {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  opacity: 0.85;
+  transition: r 0.65s cubic-bezier(0.2, 0.8, 0.4, 1), opacity 0.65s ease-out;
   filter: drop-shadow(0 0 4px currentColor);
 }
 
