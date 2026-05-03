@@ -111,8 +111,17 @@ async def vision_playtester_node(state: GameState, config: dict) -> dict:
     build_ok = playtest.get("build_ok", False)
     errors = playtest.get("errors", [])
     preview_url = playtest.get("url")
+    console_errors = playtest.get("console_errors", []) or []
+    page_errors    = playtest.get("page_errors", []) or []
+    canvas_probe   = playtest.get("canvas_probe") or {}
 
     await _push(emit, f"   playtest mode={mode} build_ok={build_ok} frames={len([f for f in frames if f.get('path')])}")
+    if page_errors:
+        await _push(emit, f"   pageerror: {str(page_errors[0])[:140]}")
+    elif console_errors:
+        await _push(emit, f"   console: {str(console_errors[0].get('text',''))[:140]}")
+    elif "silent_runtime_no_render" in errors:
+        await _push(emit, "   ⚠️ silent runtime — build OK, no errors, but canvas is dark")
 
     # 2. Build the LLM user message — text + vision blocks.
     history = state.get("playtest_score_history") or []
@@ -124,6 +133,30 @@ async def vision_playtester_node(state: GameState, config: dict) -> dict:
             f"fixes regressed. Suggest fewer + smaller changes or APPROVE."
         )
 
+    # Compact runtime-error summary for the LLM. Silent-render failures get
+    # special framing because they're the hardest class to diagnose from
+    # screenshots alone.
+    runtime_summary_lines: list[str] = []
+    if "silent_runtime_no_render" in errors:
+        runtime_summary_lines.append(
+            "SILENT RUNTIME FAILURE — build succeeded, no exceptions thrown, but "
+            "the canvas centre is near-black across all captured frames. This "
+            "is almost always a swallowed schema bug — code like "
+            "`manifest.assets || {}` returning an empty object so no assets "
+            "load. The fix is in src/game/game.js's preload() — check that "
+            "Object.entries(manifest) is used directly (NOT manifest.assets). "
+            "Emit a fix_console_error op pointing at that file with that hint."
+        )
+    if page_errors:
+        runtime_summary_lines.append("UNCAUGHT EXCEPTIONS (top 3):")
+        for e in page_errors[:3]:
+            runtime_summary_lines.append(f"  - {str(e)[:240]}")
+    if console_errors:
+        runtime_summary_lines.append("CONSOLE ERRORS / WARNINGS (top 5):")
+        for c in console_errors[:5]:
+            runtime_summary_lines.append(f"  - [{c.get('type','?')}] {str(c.get('text',''))[:240]}")
+    runtime_summary = "\n".join(runtime_summary_lines) if runtime_summary_lines else "(no runtime errors detected)"
+
     text_intro = f"""GENRE: {state.get('genre', 'auto')}
 RECIPE: {state.get('recipe_name')}
 PASS: {pass_no}
@@ -131,10 +164,19 @@ BUILD: {'OK' if build_ok else 'FAILED — public/index.html missing'}
 PLAYTEST_MODE: {mode}
 PREVIEW_URL: {preview_url or '(none)'}
 ERRORS: {errors}
+CANVAS_PROBE: {canvas_probe}
+RUNTIME:
+{runtime_summary}
 {history_hint}
 
 Score the build on the rubric, write docs/playtest-report.json with typed
-fixes. NEVER emit raw code. Maximum 5 fixes."""
+fixes. NEVER emit raw code. Maximum 5 fixes.
+
+If RUNTIME above shows a silent-render failure or a stack trace mentioning
+manifest, materials, or undefined property access, your top-priority fix
+must be a fix_console_error op pointing at src/game/game.js with a short
+hint describing the schema mismatch. Don't waste fixes on visual polish
+when the canvas isn't rendering."""
 
     user_blocks: list = [{"type": "text", "text": text_intro}]
     for f in frames:

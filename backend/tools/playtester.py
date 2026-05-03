@@ -111,11 +111,43 @@ async def _playwright_drive(url: str, out_dir: Path, genre: str = "auto") -> lis
             return []
         ctx = await browser.new_context(viewport={"width": 1280, "height": 720})
         page = await ctx.new_page()
+
+        # Capture browser console + uncaught exceptions live. This is what
+        # surfaces silent runtime failures (e.g. "manifest.assets || {}" hides
+        # the bug; the canvas is empty but no error throws — we still want
+        # to see the warning lines that ProTip generators produced).
+        live_console: list[dict] = []
+        live_pageerrors: list[str] = []
+
+        def _on_console(msg):
+            try:
+                live_console.append({
+                    "type": msg.type,
+                    "text": (msg.text or "")[:500],
+                })
+            except Exception:
+                pass
+
+        def _on_pageerror(err):
+            try:
+                live_pageerrors.append(str(err)[:600])
+            except Exception:
+                pass
+
+        page.on("console",   _on_console)
+        page.on("pageerror", _on_pageerror)
+
         try:
             await page.goto(url, wait_until="load", timeout=15000)
         except Exception as exc:
             await browser.close()
-            return [{"label": "load_failed", "path": "", "error": str(exc)[:200]}]
+            return [{
+                "label": "load_failed",
+                "path": "",
+                "error": str(exc)[:200],
+                "console_errors": [c for c in live_console if c["type"] in ("error", "warning")][-10:],
+                "page_errors": live_pageerrors[-5:],
+            }]
 
         # Wait for the canvas to appear and render at least one frame.
         try:
@@ -179,22 +211,63 @@ async def _playwright_drive(url: str, out_dir: Path, genre: str = "auto") -> lis
         except Exception:
             pass
 
-        # Pull console errors and basic perf markers from the page.
+        # Pull custom perf markers from the page (any code that pushed to
+        # window.__perfErrors). Live console + pageerror were collected by
+        # the listeners attached at page open; merge here.
         try:
-            errors = await page.evaluate(
+            perf_errors = await page.evaluate(
                 "() => (window.__perfErrors || []).slice(-5)"
             )
         except Exception:
-            errors = []
+            perf_errors = []
+
+        # Detect "silent black canvas" — a class of failure where the build
+        # loaded fine, no exception threw, but nothing rendered. We sample
+        # the canvas's center pixel to see if it's nearly-black; if every
+        # frame so far is dark, we flag silent_runtime_failure.
+        try:
+            is_dark = await page.evaluate("""
+                () => {
+                    const c = document.getElementById('stage');
+                    if (!c) return null;
+                    try {
+                        const ctx = c.getContext('webgl2') || c.getContext('webgl') || c.getContext('2d');
+                        if (!ctx) return null;
+                        // Probe the centre pixel via a 2D canvas snapshot.
+                        const probe = document.createElement('canvas');
+                        probe.width = 16; probe.height = 16;
+                        const pctx = probe.getContext('2d');
+                        pctx.drawImage(c, c.width/2 - 8, c.height/2 - 8, 16, 16, 0, 0, 16, 16);
+                        const d = pctx.getImageData(0, 0, 16, 16).data;
+                        let sum = 0;
+                        for (let i = 0; i < d.length; i += 4) sum += d[i] + d[i+1] + d[i+2];
+                        const avg = sum / (16 * 16 * 3);
+                        return { dark: avg < 8, avg };
+                    } catch (e) { return { error: String(e).slice(0, 200) }; }
+                }
+            """)
+        except Exception:
+            is_dark = None
+
+        # Combine live + post-mortem error sources. Console errors include
+        # warnings; we keep both since "warning: missing material" is a real
+        # signal even when it doesn't throw.
+        merged_console = (
+            [c for c in live_console if c["type"] in ("error", "warning")][-15:]
+            + [{"type": "perf", "text": str(e)[:300]} for e in perf_errors]
+        )
 
         # Final screenshot after a brief settle.
         await asyncio.sleep(0.8)
         path = out_dir / f"playtest_{len(frames):02d}_final.png"
         await page.screenshot(path=str(path), full_page=False)
         frames.append({
-            "label": "final", "path": str(path),
-            "ts": int(time.time() * 1000),
-            "console_errors": errors,
+            "label":          "final",
+            "path":           str(path),
+            "ts":             int(time.time() * 1000),
+            "console_errors": merged_console,
+            "page_errors":    live_pageerrors[-5:],
+            "canvas_probe":   is_dark,  # {dark: bool, avg: number} or null
         })
 
         await browser.close()
@@ -255,12 +328,35 @@ async def run_playtest(workspace_dir: str, port: Optional[int] = None, genre: st
         if url:
             frames = await _playwright_drive(url, out_dir, genre)
             if frames and any(f.get("path") for f in frames):
+                # Inspect the merged signals from the final frame to
+                # diagnose silent failures more precisely than just
+                # "preview_server_failed_to_start".
+                final = next((f for f in reversed(frames) if f.get("label") == "final"), frames[-1])
+                console = final.get("console_errors") or []
+                page_errs = final.get("page_errors") or []
+                probe = final.get("canvas_probe") or {}
+                canvas_dark = bool(probe and probe.get("dark"))
+
+                errors: list[str] = []
+                if page_errs:
+                    errors.append("runtime_pageerror")
+                if console:
+                    errors.append("runtime_console_errors")
+                if build_ok and canvas_dark and not page_errs and not console:
+                    # The hardest class to spot: build fine, no errors, but
+                    # nothing renders. Almost always a swallowed bug like
+                    # `manifest.assets || {}` returning an empty object.
+                    errors.append("silent_runtime_no_render")
+
                 return {
                     "frames": frames,
                     "url": url,
                     "mode": "playwright",
                     "build_ok": build_ok,
-                    "errors": [],
+                    "errors": errors,
+                    "console_errors": console,
+                    "page_errors": page_errs,
+                    "canvas_probe": probe,
                 }
             # Playwright unavailable or failed — fall through to static.
             frames = _static_fallback(url, out_dir)

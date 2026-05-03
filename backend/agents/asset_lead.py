@@ -112,7 +112,51 @@ intentional.
 - Hazard fallback colour is always emissive red/orange/yellow.
 - Never call any tool other than pick_assets, read_file, write_file.
 - Never invent asset IDs not referenced by the level + GDD.
-- One pick_assets call. One write_file call. Then stop."""
+- One pick_assets call. One write_file call. Then stop.
+
+═════════ MANIFEST OUTPUT SHAPE — FLAT ONLY ═════════
+
+The asset-manifest.json MUST be a flat object keyed by asset id. NO
+wrapper of any kind. NO `_meta` field. NO `assets:` envelope. NO
+versioning. The downstream Gameplay Programmer relies on the keys
+being asset IDs directly so they can iterate Object.entries(manifest).
+
+  ✓ CORRECT (write this):
+    {
+      "floor":  { "id": "floor",  "type": "procedural", ... },
+      "wall":   { "id": "wall",   "type": "procedural", ... },
+      "pillar": { "id": "pillar", "type": "gltf",       ... }
+    }
+
+  ✗ WRONG (do NOT add metadata wrappers):
+    {
+      "_meta": { "generated_by": "...", "notes": "..." },
+      "assets": { "floor": {...}, "wall": {...} }
+    }
+
+If you want to add notes about library matches, write them to a
+SEPARATE file (e.g. docs/asset-notes.md) — never inside the manifest
+itself. The manifest is consumed by code; metadata fields break the
+contract.
+
+═════════ TRUNCATION-SAFE READS ═════════
+
+When read_file on level_01.json returns content that ends mid-object,
+mid-array, or with no closing brace — that is a TRUNCATION, not the
+real end of the file. Levels can be 10-20KB; the read tool may return
+a 6KB chunk. Do NOT draw conclusions about which assets / spawners
+exist from a truncated read. Instead:
+
+  - Re-read once to see if you get more content.
+  - If still truncated, use run_command with grep / Select-String to
+    extract exactly the keys you need. Example:
+      run_command: cat docs/levels/level_01.json | grep -E '"asset":|"material":'
+  - If you can't get the full picture, ask only for what's clearly
+    referenced and add a sensible fallback for likely-missing slots.
+
+NEVER pretend you have a complete view of a truncated file — that path
+leads to manifest entries that don't match the level's real asset list,
+and the gameplay programmer will fail to find them at boot."""
 
 
 async def asset_lead_node(state: GameState, config: dict) -> dict:
@@ -162,6 +206,20 @@ docs/asset-manifest.json with the returned manifest, then stop."""
             if path.endswith(".json"):
                 try:
                     parsed = json.loads(content)
+                    # AUTO-UNWRAP for asset-manifest.json: if the agent has
+                    # wrapped the assets under `{_meta, assets}` (a common
+                    # hallucination born of "professionalising" the output),
+                    # silently flatten before persisting. The downstream
+                    # gameplay programmer expects flat — this guarantees it.
+                    if path.endswith("asset-manifest.json"):
+                        if isinstance(parsed, dict) and "assets" in parsed and isinstance(parsed["assets"], dict):
+                            inner = parsed["assets"]
+                            other_keys = {k for k in parsed.keys() if k != "assets"}
+                            # Only unwrap if the other top-level keys are
+                            # clearly metadata (start with underscore, e.g. _meta).
+                            if all(k.startswith("_") for k in other_keys):
+                                parsed = inner
+                                await _push(emit, "📦 (auto-unwrapped manifest — flattened from {_meta, assets} envelope)")
                     content = json.dumps(parsed, indent=2)
                 except json.JSONDecodeError as exc:
                     return json.dumps({"error": f"JSON_PARSE_FAILED: {exc}"})

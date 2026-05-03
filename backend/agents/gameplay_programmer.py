@@ -126,32 +126,99 @@ The Engine instance is passed to your Game class. You use:
 
 ═════════ MANDATORY preload() PATTERN ═════════
 
+═══ ASSET MANIFEST SCHEMA (READ THIS TWICE) ═══
+
+The asset-manifest.json file is a FLAT OBJECT. The keys ARE the asset
+IDs. There is NO `.assets` wrapper, NO `.entries` wrapper, NO nesting
+of any kind. This is not a suggestion — it is the actual shape on disk.
+
+Real example of what you will fetch — copy this mentally before writing
+code:
+
+    {
+      "floor":  { "id": "floor",  "type": "procedural", "kind": "cube",
+                  "color": "#0a0a1a", "metallic": 0.9, "roughness": 0.2 },
+      "wall":   { "id": "wall",   "type": "procedural", "kind": "cube",
+                  "color": "#1a1a3a", "metallic": 0.8, "roughness": 0.3 },
+      "pillar": { "id": "pillar", "type": "gltf",
+                  "path": "assets/pillar.glb", "anims": ["spin"] }
+    }
+
+Notice: the top-level keys are "floor", "wall", "pillar" — NOT "assets".
+
+═══ ABSOLUTE BANS (these have caused real production crashes) ═══
+
+  ✗ NEVER WRITE: manifest.assets
+  ✗ NEVER WRITE: manifest.assets || {}
+  ✗ NEVER WRITE: manifest?.assets
+  ✗ NEVER WRITE: const assets = manifest.assets ?? {}
+  ✗ NEVER WRITE: for (const [id, entry] of Object.entries(manifest.assets))
+
+  These all silently produce an empty asset set, which boots a black
+  empty canvas with NO error message. The user sees nothing, the
+  playtester captures black frames, the bug looks like a "preview
+  failure" but is actually your code.
+
+═══ THE ONLY CORRECT PATTERN ═══
+
+  // Iterate the manifest directly — keys ARE asset IDs.
+  const gltfEntries = Object.entries(manifest)
+    .filter(([_, e]) => e && e.type === 'gltf');
+  // entry.id, entry.type, entry.path, entry.color, entry.kind, etc. all
+  // live directly on each entry object.
+
+═══ NO DEFENSIVE `||` DEFAULTS ON SCHEMA READS ═══
+
+If you find yourself writing `someObj.knownKey || {}` or `?? defaultValue`
+on a property that should always exist according to the schema — DON'T.
+Let the missing-property surface as an exception. The error overlay we
+have on the iframe will show the stack trace in 1 second; a `||` default
+hides the bug for hours.
+
+  ✗ const lighting = materials.lighting || {};   // hides bugs
+  ✓ const lighting = materials.lighting;         // throws if missing
+
+The only place `||` defaults are acceptable is for genuinely-optional
+values (e.g. `materials.post_fx.bloom_strength_override` which is null
+if Tech-Art chose the preset default).
+
+═══ FIX-THEN-INVESTIGATE WORKFLOW RULE ═══
+
+When a build is failing or a runtime bug is identified:
+  1. State what the bug is in one sentence.
+  2. Your VERY NEXT TOOL CALL must be `write_file` patching the bug.
+     NOT another read_file. NOT another run_command. write_file.
+  3. THEN run the build again to verify.
+  4. If the bug isn't fully fixed, repeat — but each cycle must include
+     at least one write_file. Reading without writing is forbidden after
+     the first time you've named the bug.
+
+You will be tempted to "just check one more file" before writing the
+fix. Resist. The diagnosis you have is enough. Patch first; if the
+patch is wrong, the next run will tell you and you can iterate.
+
+═══ READ_FILE TRUNCATION WARNING ═══
+
+When read_file returns content that visibly ends mid-array, mid-object,
+or mid-line (no closing brace, abrupt cutoff, etc.), DO NOT draw schema
+conclusions from it. Either:
+  - Re-read the file and look for the closing structure, OR
+  - Use run_command with `wc -l` and `head -N`/`tail -N` to inspect
+    specific sections, OR
+  - Trust the schema from the source agent's spec (Asset Lead's manifest
+    is always flat; that is documented in this prompt above), and don't
+    re-derive the schema from a partial file read.
+
+═══ FILE LOCATIONS ═══
+
 The runtime fetches two JSON files at boot — both already live in the
 Vite project's public/ folder so they're served at root:
 
-  /asset-manifest.json   — Asset Lead's output. THE MANIFEST IS A FLAT
-                           OBJECT keyed by asset id. There is NO `.assets`
-                           wrapper. Concrete shape:
-      {
-        "floor":  {"id": "floor",  "type": "procedural", "kind": "cube",
-                   "color": "#222", "metallic": 0.5, "roughness": 0.5, ...},
-        "pillar": {"id": "pillar", "type": "gltf",
-                   "path": "assets/pillar.glb", "anims": ["spin"], ...},
-        ...
-      }
-      Each entry has:
-      type:    "gltf"       → load via engine.assets.loadGltf(id, entry.path)
-      type:    "procedural" → built lazily later via engine.assets.primitive()
-      anims:   [...]        → present on rigged glTFs
-      tags:    [...]        → for runtime filtering if needed
-      DO NOT WRITE manifest.assets. That key does not exist and accessing
-      it will throw `Cannot convert undefined or null to object` on boot.
-      The correct iteration is Object.entries(manifest), nothing else.
+  /asset-manifest.json   — Asset Lead's output (flat object, see above).
+  /materials.json        — Tech-Art's output. Has lighting, post_fx,
+                           materials.<id>, and block_materials.<name>.
 
-  /materials.json         — Tech-Art's output. Has lighting, post_fx,
-                            materials.<id>, and block_materials.<name>.
-
-In preload(), do EXACTLY this:
+═══ MANDATORY preload() — COPY THIS PATTERN EXACTLY ═══
 
   async preload() {
     const [manifest, materials] = await Promise.all([
@@ -177,8 +244,7 @@ In preload(), do EXACTLY this:
     });
 
     // 3. Load every gltf asset declared in the manifest IN PARALLEL.
-    //    NOTE: manifest is FLAT (asset id → entry). Iterate manifest itself,
-    //    NOT manifest.assets — that property does not exist and would crash.
+    //    Iterate manifest itself — see "ABSOLUTE BANS" section above.
     const gltfEntries = Object.entries(manifest)
       .filter(([_, e]) => e && e.type === 'gltf');
     await Promise.all(gltfEntries.map(([id, entry]) =>
@@ -301,6 +367,34 @@ exists and the last build exited 0."""
                 # Default new code into the game project.
                 if path.endswith(".js") or path.endswith(".ts") or path.endswith(".css") or path.endswith(".html"):
                     real_path = "game/src/game/" + Path(path).name
+
+            # ── HARD GUARD: forbidden-pattern check on JS source ─────────
+            # The asset manifest is FLAT. References to manifest.assets are
+            # a hallucinated wrapper that silently produces an empty asset
+            # set, booting a black canvas with no error. We refuse the write
+            # so the agent must fix it before progressing. (Spaces optional
+            # to catch manifest.assets, manifest .assets, manifest?.assets.)
+            if real_path.endswith((".js", ".ts", ".mjs")):
+                import re as _re
+                bad = []
+                # Dot-access (incl. optional chaining + whitespace).
+                if _re.search(r"manifest\s*\??\s*\.\s*assets\b", content):
+                    bad.append("manifest.assets / manifest?.assets")
+                # Bracket access with string key — same hallucinated wrapper.
+                if _re.search(r"manifest\s*\??\s*\[\s*['\"]assets['\"]\s*\]", content):
+                    bad.append("manifest['assets'] / manifest[\"assets\"]")
+                if bad:
+                    err = (
+                        "WRITE REJECTED: forbidden pattern in code. "
+                        "The asset manifest is FLAT — there is NO `.assets` wrapper. "
+                        f"Found: {', '.join(bad)} in {real_path}. "
+                        "The keys of the manifest object ARE the asset IDs. "
+                        "Use Object.entries(manifest) or manifest[<id>] directly. "
+                        "Re-emit write_file with the corrected source. "
+                        "Do not proceed to build until fixed."
+                    )
+                    return json.dumps({"ok": False, "path": real_path, "error": err})
+
             result = write_file(workspace, real_path, content)
             if result.get("ok"):
                 files_written.append(real_path)
