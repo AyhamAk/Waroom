@@ -32,6 +32,22 @@ steps:
 preserve: files Developer must not touch
 
 RULE: write_file path MUST be "docs/technical-spec.md". Nothing else. Then STOP.
+
+━━━ SCROLL SITE STACK ━━━
+When the brief mentions: website / landing page / portfolio / agency / marketing / product showcase / 3D scroll — use this stack (NO npm, NO build step, pure CDN):
+  stack: three@0.165.0 | gsap@3.12.5 | gsap/ScrollTrigger | lenis@1.1.13 (all via esm.sh CDN)
+  create:
+    public/index.html        — HTML skeleton with importmap + semantic sections
+    public/css/style.css     — full page styles + section layouts
+    public/js/main.js        — Lenis + GSAP bootstrap + Three.js init
+    public/js/scene.js       — Three.js scene, camera, lights, 3D objects
+    public/js/animations.js  — all GSAP ScrollTrigger timelines
+  steps:
+    1. No npm install needed — all libs from esm.sh importmap
+    2. Fixed canvas#webgl as 3D background (z-index:0), #content div on top (z-index:1)
+    3. Lenis smooth scroll drives ScrollTrigger.update
+    4. Camera position animated via scrollTrigger scrub on section triggers
+    5. At least one pinned section with scroll-driven 3D object animation
 """
 
 

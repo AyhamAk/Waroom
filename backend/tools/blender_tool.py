@@ -41,7 +41,7 @@ def execute_blender(code: str, timeout: int = 30) -> dict:
                     data += chunk
                     # Stop as soon as we have a complete JSON object
                     try:
-                        json.loads(data.decode("utf-8").strip())
+                        json.JSONDecoder().raw_decode(data.decode("utf-8").strip())
                         break
                     except json.JSONDecodeError:
                         continue
@@ -49,7 +49,10 @@ def execute_blender(code: str, timeout: int = 30) -> dict:
                     break
             if not data:
                 return {"status": "error", "message": "No response from Blender socket"}
-            parsed = json.loads(data.decode("utf-8").strip())
+            decoded = data.decode("utf-8").strip()
+            # Use raw_decode so multiple concatenated JSON objects don't raise
+            # "Extra data" — we only care about the first complete response.
+            parsed = json.JSONDecoder().raw_decode(decoded)[0]
             # Unwrap nested success result: {"status":"success","result":{"executed":true,"result":"..."}}
             if parsed.get("status") == "success" and isinstance(parsed.get("result"), dict):
                 parsed["result"] = parsed["result"].get("result", "")

@@ -27,6 +27,54 @@ from tools.file_ops import list_files, read_file, write_file
 _GAMEPLAY_SYSTEM = """You are a Gameplay Programmer. You ship the gameplay
 code that turns the design + level + assets into a playable Three.js game.
 
+═════════ VISUAL QUALITY MANDATE ═════════
+
+The game MUST look polished and visually impressive. This is non-negotiable.
+Every game you build must have ALL of the following:
+
+GEOMETRY DIVERSITY
+- Never use a plain SphereGeometry for more than one entity type.
+- Each distinct game entity (player, each enemy type, core, props) must use a
+  DIFFERENT geometry: OctahedronGeometry, IcosahedronGeometry, ConeGeometry,
+  TorusGeometry, CylinderGeometry, DodecahedronGeometry, LatheGeometry, etc.
+- Enemies must look threatening. Shards = sharp cones. Drones = octahedra.
+  Giants = icosahedra. Never plain spheres.
+
+FLOOR / ARENA SHADERS
+- Static flat-colored floors are forbidden. Every floor or platform surface
+  MUST use a ShaderMaterial with a procedural pattern: hex grid, circuit
+  lines, voronoi cells, or animated pulse rings.
+- Hex grid fragment shader pattern is the gold standard for sci-fi arenas.
+  Always implement it when the genre is top-down, arena, or tower-defense.
+
+DECORATIVE ELEMENTS
+- Every arena must have at least 4 decorative props at the corners/edges:
+  obelisks, pylons, floating crystals, etc. These add depth and scale.
+- Obelisks: tall thin CylinderGeometry + ConeGeometry tip, emissive material,
+  small PointLight at the tip.
+
+PARTICLE EFFECTS
+- Use engine.particles.explosion() on every enemy death — color matched to
+  enemy type.
+- Use engine.particles.muzzleFlash() on every player shot.
+- Use engine.particles.sparkle() on wave clear and score milestones.
+
+ANIMATIONS
+- The core/central object MUST rotate and pulse.
+- The player entity MUST have a hover bob animation (sin wave on Y).
+- Enemies MUST have type-specific rotation: drones spin on Y, shards tumble
+  on X+Y, giants roll on all axes.
+
+EMISSIVE LIGHTING
+- All game-relevant objects (player, enemies, core, arena lines) must use
+  emissive materials. A game where the entities don't glow looks dead.
+- Target emissiveIntensity: 1.0–1.5 for primary objects, 0.5–0.8 for
+  secondary/decorative. Never 0.
+
+POSTFX WIRING
+- Wire chromatic aberration spikes to impact events (core hit).
+- Wire bloom strength changes to game state (low HP = stronger bloom).
+
 ═════════ ENGINE API (already provided — DO NOT REIMPLEMENT) ═════════
 
 Imports available everywhere:
@@ -84,6 +132,10 @@ The Engine instance is passed to your Game class. You use:
   engine.particles.smoke(pos, {count,color})
   engine.particles.emit({position, velocity, color, alpha, size, life, gravity})
 
+  // Trails — ribbon trails behind fast-moving objects (enemies, projectiles)
+  const trail = engine.trails.create(mesh, {color, length, width, opacity})
+  trail.destroy()                                    — call when entity dies
+
   // Decals (bullet holes, scorch marks, blood)
   engine.decals.spray(targetMesh, position, normal, {size, color, opacity})
 
@@ -105,6 +157,60 @@ The Engine instance is passed to your Game class. You use:
   const body = phys.addBody({ position, velocity, radius, height, kinematic });
   phys.step(dt);
   const hit = phys.raycast(origin, dir, maxDist);
+
+═════════ SURFACE TEXTURES ═════════
+
+docs/textures.json is written by the Texture Artist before you run.
+READ IT with read_file("docs/textures.json") during your initial reads.
+
+Schema:
+  {
+    "floor": {"file": "textures/floor.png", "repeat": 8},
+    "wall":  {"file": "textures/wall.png",  "repeat": 4},
+    "prop":  {"file": "textures/prop.png",  "repeat": 2}
+  }
+
+APPLICATION RULES (mandatory when textures.json exists and has no errors):
+- ALL large flat surfaces (ground planes, arena floors, platforms,
+  terrain) → use textures["floor"]. Flat MeshStandardMaterial colors
+  are FORBIDDEN for these when a floor texture is available.
+- ALL vertical barriers, walls, fences → use textures["wall"].
+- ALL crates, barrels, boxes, static props → use textures["prop"].
+- NEVER apply textures to animated entities (player, enemies, pickups)
+  — their geometry + emissive materials are intentional.
+
+Load pattern — add this helper near the top of game.js:
+
+    const _texLoader = new THREE.TextureLoader()
+    function _loadTex(file, repeat) {
+      const t = _texLoader.load(file)
+      t.wrapS = t.wrapT = THREE.RepeatWrapping
+      t.repeat.set(repeat, repeat)
+      return t
+    }
+
+Then in scene setup after reading textures.json:
+
+    let txFloor = null, txWall = null, txProp = null
+    try {
+      const txData = await fetch('/textures.json').then(r => r.json())
+      if (txData.floor?.file) txFloor = _loadTex(txData.floor.file, txData.floor.repeat || 8)
+      if (txData.wall?.file)  txWall  = _loadTex(txData.wall.file,  txData.wall.repeat  || 4)
+      if (txData.prop?.file)  txProp  = _loadTex(txData.prop.file,  txData.prop.repeat  || 2)
+    } catch (_) { /* textures optional */ }
+
+Apply:
+    const floorMat = new THREE.MeshStandardMaterial({
+      map: txFloor, roughness: 0.92, metalness: 0.0
+    })
+    const wallMat = new THREE.MeshStandardMaterial({
+      map: txWall, roughness: 0.85, metalness: 0.0
+    })
+
+- Textures load async — Three.js renders fine before they arrive (no
+  need to await). The material updates automatically when the image loads.
+- If textures.json fetch fails or a file field is null, fall back to the
+  flat color from materials.json. Never let a missing texture crash init.
 
 ═════════ STRICT WORKFLOW ═════════
 
@@ -276,6 +382,11 @@ Vite project's public/ folder so they're served at root:
 - Use engine.decals.spray() for bullet holes / blood / scorch marks.
 - Use engine.assets.instanced() for swarms (>10 of the same enemy).
 - Game logic file under 380 lines. If longer, split into 2-3 files.
+- Every floor/platform MUST use ShaderMaterial (no plain MeshStandardMaterial
+  for large horizontal surfaces visible from above).
+- Every entity type must use a unique geometry — no two different entity
+  categories may share the same geometry constructor.
+- Minimum 4 decorative props in the scene.
 
 ═════════ EXIT CONDITION ═════════
 
@@ -423,12 +534,15 @@ exists and the last build exited 0."""
 
     public_index = Path(workspace) / "public" / "index.html"
     built = public_index.exists()
+    session_id = state.get("session_id", "")
+    preview_url = f"/workspace/{session_id}/public/" if built and session_id else None
     await emit("agent-status", {"agentId": "gameplay-programmer", "status": "idle"})
     await _push(emit, f"🕹️ Gameplay Programmer done — build {'✓ ok' if built else '✗ FAILED'}")
     return {
         "gameplay_files": files_written,
+        "preview_url": preview_url,
         "total_tokens": session.get("tokens", 0) if session else 0,
-        "is_rebuild": False,   # consume the rebuild flag
+        "is_rebuild": False,
     }
 
 

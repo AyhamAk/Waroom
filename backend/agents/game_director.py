@@ -141,10 +141,9 @@ short paragraph of notes. Then stop."""
         emit=emit,
         agent_id="game-director",
         api_key=state["api_key"],
-        # Director writes a creative GDD — selection + creative writing,
-        # no integration work. Haiku 4.5 handles this comfortably at 1/5
-        # the cost of Sonnet.
-        model="claude-haiku-4-5",
+        # Director writes the GDD and reviews playtest quality — needs
+        # strong creative judgement and vision reasoning on cycle 2+.
+        model="claude-sonnet-4-6",
         max_tokens=2500,
         max_iterations=4,
         session=session,

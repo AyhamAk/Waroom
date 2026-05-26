@@ -260,6 +260,61 @@ docs/asset-manifest.json with the returned manifest, then stop."""
         cache_system=True,
     )
 
+    # ── Completeness guard ───────────────────────────────────────────────────
+    # The LLM can miss assets in long level files due to truncation. Read
+    # level_01.json directly, extract every referenced asset/material id,
+    # and auto-add any that are absent from the manifest as procedural
+    # fallbacks so the gameplay programmer never hits a 404 at boot.
+    try:
+        level_raw = read_file(workspace, "docs/levels/level_01.json") or "{}"
+        level_data = json.loads(level_raw)
+        referenced: set = set()
+        for p in (level_data.get("props") or []):
+            aid = p.get("asset")
+            if aid:
+                referenced.add(aid)
+        for s in (level_data.get("spawners") or []):
+            aid = s.get("asset")
+            if aid:
+                referenced.add(aid)
+        for b in (level_data.get("blocks") or []):
+            mid = b.get("material")
+            if mid:
+                referenced.add(mid)
+
+        manifest_raw = read_file(workspace, "docs/asset-manifest.json") or "{}"
+        try:
+            manifest_data = json.loads(manifest_raw)
+        except Exception:
+            manifest_data = {}
+
+        _FALLBACK_PALETTE = {
+            "barrel":        ("#886644", 0.4, 0.7, 0.6),
+            "health_pickup": ("#22ff44", 0.1, 0.3, 0.4),
+            "ammo_pickup":   ("#ffcc00", 0.3, 0.4, 0.4),
+            "chaser":        ("#ff2244", 0.7, 0.3, 0.8),
+            "shooter":       ("#ff8800", 0.6, 0.3, 0.8),
+            "swarm":         ("#ff44ff", 0.5, 0.4, 0.5),
+        }
+        added: list = []
+        for aid in sorted(referenced):
+            if aid in manifest_data:
+                continue
+            col, met, rou, sz = _FALLBACK_PALETTE.get(aid, ("#aaaaaa", 0.3, 0.6, 1.0))
+            manifest_data[aid] = {
+                "id": aid, "type": "procedural", "kind": "sphere",
+                "color": col, "metallic": met, "roughness": rou, "size": sz,
+            }
+            added.append(aid)
+        if added:
+            patched = json.dumps(manifest_data, indent=2)
+            write_file(workspace, "docs/asset-manifest.json", patched)
+            write_file(workspace, "game/public/asset-manifest.json", patched)
+            asset_results = manifest_data
+            await _push(emit, f"📦 Manifest patched — added missing ids: {added}")
+    except Exception as exc:
+        await _push(emit, f"📦 Manifest completeness check failed: {exc}")
+
     manifest_text = read_file(workspace, "docs/asset-manifest.json") or json.dumps(asset_results, indent=2)
     await emit("agent-status", {"agentId": "asset-lead", "status": "idle"})
     await _push(emit, f"📦 Asset Lead done — {len(asset_results)} assets")

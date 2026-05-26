@@ -56,6 +56,10 @@
         <span class="studio-tab-icon">🎮</span>
         <span class="studio-tab-label">3D GAME STUDIO</span>
       </button>
+      <button class="studio-tab" id="tab-qa-studio" onclick="switchStudioMode('qa')">
+        <span class="studio-tab-icon">🐛</span>
+        <span class="studio-tab-label">QA STUDIO</span>
+      </button>
     </div>
   </div>
 
@@ -467,12 +471,96 @@
               <div class="g3-preview-error-title">PREVIEW ERROR</div>
               <div id="g3-preview-error-msg" class="g3-preview-error-msg"></div>
               <button class="g3-preview-error-retry" onclick="g3PreviewRefresh(true)">↻ RETRY</button>
+              <div id="g3-completed-sessions" class="g3-completed-sessions" hidden></div>
             </div>
           </div>
         </div>
         <div class="live-panel g3-playtest-panel">
           <div class="panel-title">PLAYTEST FEED</div>
           <div id="g3-playtest-feed" class="g3-playtest-feed"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ QA STUDIO ═══════════ -->
+  <section id="qa-studio" class="blender-studio-section" hidden>
+    <div class="live-controls blender-controls">
+      <div class="ctrl-left">
+        <div class="bs-mode-badge"><span class="bs-mode-dot"></span>QA STUDIO</div>
+        <div id="qa-status" class="bs-render-status">STANDBY</div>
+        <div id="qa-stats" class="qa-stats-bar"></div>
+      </div>
+      <div class="ctrl-right">
+        <button class="ctrl-btn new-mission-live-btn" id="qa-stop-btn" onclick="qaStop()" hidden>■ STOP</button>
+      </div>
+    </div>
+
+    <div class="live-main">
+      <!-- Left: form + agent desks -->
+      <div class="live-left bs-left">
+        <div class="live-panels" style="flex-direction:column;">
+          <div class="live-panel bs-input-panel">
+            <div class="panel-title">TARGET</div>
+            <div class="bs-form">
+              <div class="bs-field-group">
+                <label class="field-label" for="qa-api-key">// ANTHROPIC API KEY</label>
+                <input id="qa-api-key" type="password" class="mode-key-input"
+                       placeholder="sk-ant-..." style="width:100%;margin-top:4px;"
+                       oninput="if(typeof state!=='undefined') state.apiKey=this.value.trim()" />
+              </div>
+              <div class="bs-field-group">
+                <label class="field-label" for="qa-url-input">// TARGET URL</label>
+                <input id="qa-url-input" type="url" class="mode-key-input"
+                       placeholder="https://example.com" style="width:100%;margin-top:4px;" />
+              </div>
+              <button class="deploy-btn" id="qa-start-btn" onclick="qaStart()">
+                <span class="deploy-icon">🐛</span> LAUNCH QA SWARM
+              </button>
+            </div>
+          </div>
+          <div class="live-panel bs-agents-panel">
+            <div class="panel-title">QA AGENTS</div>
+            <div class="bs-agent-desks" id="qa-agent-desks"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Middle: mini-map + agent log -->
+      <div class="bs-log-panel" style="display:flex;flex-direction:column;gap:0;">
+        <div class="live-panel" style="flex:0 0 auto;padding:0.5rem;">
+          <div class="panel-title g3-pipeline-title">
+            <span>PIPELINE</span>
+            <span class="g3-mm-flow-label" style="font-size:0.6rem;color:#556;margin-left:auto;">SCOUT → AGENTS → SYNTHESIS</span>
+          </div>
+          <svg id="qa-minimap" class="g3-minimap" viewBox="0 0 320 130"
+               xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <filter id="g3-mm-glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="2.5" result="b"/>
+                <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+            <g id="qa-mm-edges"></g>
+            <g id="qa-mm-pulses"></g>
+            <g id="qa-mm-nodes"></g>
+          </svg>
+        </div>
+        <div class="panel-title" style="padding:0.4rem 0.75rem;">AGENT LOG</div>
+        <div class="bs-log-feed" id="qa-log-feed" style="flex:1;">
+          <div class="bs-log-entry bs-log-sys">Waiting for QA swarm...</div>
+        </div>
+      </div>
+
+      <!-- Right: screenshot grid + bug feed -->
+      <div class="live-right bs-right" style="flex-direction:column;gap:0.5rem;">
+        <div class="live-panel" style="flex:1;overflow:hidden;">
+          <div class="panel-title">LIVE BROWSER FEED</div>
+          <div id="qa-screenshot-grid" class="qa-screenshot-grid"></div>
+        </div>
+        <div class="live-panel" style="flex:1;overflow:hidden;">
+          <div class="panel-title">BUG FEED</div>
+          <div id="qa-bug-feed" class="qa-bug-feed"></div>
         </div>
       </div>
     </div>
@@ -652,6 +740,7 @@
   <script src="phase4.js"></script>
   <script src="blender-studio.js"></script>
   <script src="game-studio-3d.js"></script>
+  <script src="qa-studio.js"></script>
   <script src="router.js"></script>
   <script src="init.js"></script>
 </body>

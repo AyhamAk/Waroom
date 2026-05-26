@@ -22,6 +22,7 @@ const game3dState = {
   timer: null,
   sse: null,
   resumableSession: null,    // {sessionId, brief, paused_at, ...}
+  previewUrl: null,
 };
 
 function _g3ApiKey() {
@@ -99,6 +100,18 @@ function game3dInit() {
 
   // Check for any paused-or-incomplete session waiting on disk.
   _g3CheckResumable();
+
+  // Auto-load preview if the backend already has a session (e.g. auto-restored on startup).
+  _g3AutoLoadPreview();
+}
+
+async function _g3AutoLoadPreview() {
+  try {
+    const res = await fetch('/api/game/status');
+    if (!res.ok) return;
+    const { sessionId } = await res.json();
+    if (sessionId) g3PreviewRefresh(false);
+  } catch (e) { /* silent */ }
 }
 
 async function _g3CheckResumable() {
@@ -106,23 +119,38 @@ async function _g3CheckResumable() {
     const res = await fetch('/api/game/sessions');
     if (!res.ok) return;
     const data = await res.json();
-    const sessions = (data.sessions || []).filter(s => !s.completed);
-    if (!sessions.length) {
-      const banner = document.getElementById('g3-resume-banner');
-      if (banner) banner.hidden = true;
-      return;
-    }
-    const newest = sessions[0];
-    game3dState.resumableSession = newest;
+    const all = data.sessions || [];
+    const incomplete = all.filter(s => !s.completed);
+    const completed  = all.filter(s => s.completed);
+
+    // Resume banner — incomplete sessions.
     const banner = document.getElementById('g3-resume-banner');
-    const info = document.getElementById('g3-resume-info-line');
-    if (banner && info) {
-      const when = newest.paused_at
-        ? `paused ${_g3RelativeTime(newest.paused_at)}`
-        : `last touched ${_g3RelativeTime(newest.saved_at || Date.now())}`;
-      const briefSnippet = (newest.brief || '').slice(0, 64) + (newest.brief?.length > 64 ? '…' : '');
-      info.textContent = `${briefSnippet || newest.session_id} · ${newest.file_count || 0} files · ${(newest.tokens || 0).toLocaleString()} tokens · ${when}`;
-      banner.hidden = false;
+    const info   = document.getElementById('g3-resume-info-line');
+    if (incomplete.length) {
+      const newest = incomplete[0];
+      game3dState.resumableSession = newest;
+      if (banner && info) {
+        const when = newest.paused_at
+          ? `paused ${_g3RelativeTime(newest.paused_at)}`
+          : `last touched ${_g3RelativeTime(newest.saved_at || Date.now())}`;
+        const briefSnippet = (newest.brief || '').slice(0, 64) + (newest.brief?.length > 64 ? '…' : '');
+        info.textContent = `${briefSnippet || newest.session_id} · ${newest.file_count || 0} files · ${when}`;
+        banner.hidden = false;
+      }
+    } else if (banner) {
+      banner.hidden = true;
+    }
+
+    // Completed sessions — show as "Load Preview" chips.
+    const container = document.getElementById('g3-completed-sessions');
+    if (container && completed.length) {
+      container.innerHTML = completed.slice(0, 6).map(s => {
+        const label = (s.brief || s.session_id || '').slice(0, 40);
+        return `<button class="g3-load-session-btn" onclick="g3LoadSession('${s.session_id}')" title="${s.session_id}">
+          ▶ ${label || s.session_id}
+        </button>`;
+      }).join('');
+      container.hidden = false;
     }
   } catch (e) {
     console.warn('resumable session check failed', e);
@@ -138,6 +166,10 @@ function _g3RelativeTime(ts) {
 }
 
 function _wireG3SSE(es) {
+  es.addEventListener('game-session-loaded', () => {
+    g3PreviewRefresh(true);
+  });
+
   es.addEventListener('agent-status', (ev) => {
     const d = JSON.parse(ev.data);
     const status = d.status || 'idle';
@@ -199,6 +231,19 @@ function _wireG3SSE(es) {
   es.addEventListener('token-update', (ev) => {
     const d = JSON.parse(ev.data);
     _g3UpdateDashboard(d);
+  });
+
+  es.addEventListener('game-preview-ready', (ev) => {
+    const d = JSON.parse(ev.data);
+    if (!d.previewUrl) return;
+    game3dState.previewUrl = d.previewUrl;
+    const iframe = document.getElementById('g3-preview-iframe');
+    if (iframe) {
+      iframe.src = d.previewUrl;
+      _g3SetPreviewBadge('live', 'LIVE');
+      _g3HidePreviewError();
+    }
+    document.getElementById('g3-status').textContent = 'PLAYING';
   });
 
   es.addEventListener('game-start', () => {
@@ -754,7 +799,8 @@ function g3PreviewRefresh(forceVisible) {
   if (!iframe) return;
   _g3HidePreviewError();
   _g3SetPreviewBadge('refreshing', 'REFRESHING…');
-  iframe.src = '/preview-game?t=' + Date.now();
+  const base = game3dState.previewUrl || '/preview-game';
+  iframe.src = base + (base.includes('?') ? '&' : '?') + 't=' + Date.now();
 }
 
 function _g3OnPreviewLoad() {
@@ -837,6 +883,16 @@ async function game3dStart() {
 
 async function game3dStop() {
   try { await fetch('/api/game/stop', { method: 'POST' }); } catch (e) {}
+}
+
+async function g3LoadSession(sessionId) {
+  try {
+    const res = await fetch(`/api/game/load/${sessionId}`, { method: 'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    g3PreviewRefresh(true);
+  } catch (e) {
+    alert('Load failed: ' + e.message);
+  }
 }
 
 async function game3dTogglePause() {

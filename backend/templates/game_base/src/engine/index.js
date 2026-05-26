@@ -11,6 +11,7 @@ import { UI } from './ui.js';
 import { PostFX } from './postfx.js';
 import { Particles } from './particles.js';
 import { Decals } from './decals.js';
+import { Trails } from './trails.js';
 
 export class Engine {
   constructor(canvas) {
@@ -24,6 +25,7 @@ export class Engine {
     this.lighting = null;
     this.particles = null;
     this.decals = null;
+    this.trails = null;
     this.postfx = null;
 
     this.clock = { last: 0, dt: 0, t: 0, frame: 0, fps: 0, _acc: 0, _frames: 0 };
@@ -40,6 +42,7 @@ export class Engine {
     this.lighting = new Lighting(this);
     this.particles = new Particles(this);
     this.decals = new Decals(this);
+    this.trails = new Trails(this);
     this.input.attach();
     this.ui.mount();
   }
@@ -84,9 +87,16 @@ export class Engine {
     if (this.game?.update) this.game.update(dt, this.clock.t);
     if (this.lighting) this.lighting.update();
     if (this.particles) this.particles.update(dt, this.clock.t);
+    if (this.trails) this.trails.update();
     this.input.tick();
-    if (this.postfx?.render) this.postfx.render();
-    else this.renderer.render();
+    try {
+      if (this.postfx?.render) this.postfx.render();
+      else this.renderer.render();
+    } catch (e) {
+      console.warn('[engine] render error, disabling SSAO:', e.message || e);
+      if (this.postfx?.ssao) this.postfx.ssao.enabled = false;
+      try { this.renderer.render(); } catch (_) { /* ignore */ }
+    }
     if (this._perfEl) this._updatePerf();
     requestAnimationFrame(this._tick);
   };

@@ -12,8 +12,8 @@ async function boot() {
   const game = new Game(engine);
   await game.preload();
 
-  loading.hidden = true;
-  document.getElementById('hud').hidden = false;
+  loading.style.display = 'none';
+  document.getElementById('hud').style.display = 'block';
 
   game.start();
   engine.start(game);

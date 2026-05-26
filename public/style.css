@@ -3945,6 +3945,33 @@ body {
   background: #ef4444;
   color: #fff;
 }
+.g3-completed-sessions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: center;
+  margin-top: 0.5rem;
+  max-width: 90%;
+}
+.g3-load-session-btn {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid #4b5563;
+  color: #9ca3af;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+.g3-load-session-btn:hover {
+  border-color: #10b981;
+  color: #10b981;
+}
 
 /* ─── Video ready overlay ─── */
 .bs-video-overlay {
@@ -4022,4 +4049,283 @@ body {
   .bs-left { width: 100%; }
   #blender-studio .live-main { flex-direction: column; }
   .bs-resume-banner { flex-direction: column; align-items: flex-start; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   QA STUDIO
+═══════════════════════════════════════════════════════════════ */
+
+.qa-stats-bar { display:flex; gap:1rem; font-size:0.75rem; font-family:var(--font-mono); }
+.qa-stats-bar span { opacity:0.9; }
+.qa-stat-total { color:#00e676; font-weight:700; }
+
+.qa-screenshot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 4px;
+  height: 100%;
+  overflow: hidden;
+  padding: 4px;
+  box-sizing: border-box;
+}
+
+/* Panel size is owned by the grid — content never changes it */
+.qa-shot-panel {
+  position: relative;          /* anchor for absolute children */
+  overflow: hidden;
+  background: #0a0c14;
+  border: 1px solid #1e2235;
+  border-radius: 4px;
+  min-height: 0;               /* prevent grid row blowout */
+  min-width: 0;
+}
+
+/* Label floats as overlay so it doesn't occupy layout space */
+.qa-shot-label {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 2;
+  font-size: 0.58rem;
+  font-family: var(--font-mono);
+  color: #778;
+  padding: 3px 6px;
+  background: rgba(5, 7, 15, 0.82);
+  backdrop-filter: blur(3px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Idle placeholder fills the panel absolutely */
+.qa-shot-idle {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #2a2d3a;
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+}
+
+/* Image fills the panel absolutely — no layout impact */
+.qa-shot-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+  display: block;
+}
+
+.qa-bug-feed {
+  overflow-y: auto;
+  height: 100%;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.qa-bug-entry {
+  background: #0d0f1a;
+  border-left: 3px solid #333;
+  padding: 6px 10px;
+  border-radius: 0 4px 4px 0;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.qa-bug-sev  { font-weight: 700; font-size: 0.68rem; }
+.qa-bug-agent { color: #556; font-size: 0.65rem; }
+.qa-bug-title { color: #ccd; font-size: 0.75rem; }
+.qa-bug-desc  { color: #778; font-size: 0.65rem; margin-top: 2px; opacity: 0.8; }
+
+.qa-bug-count {
+  font-size: 0.62rem;
+  color: #556;
+  font-family: var(--font-mono);
+  margin-left: auto;
+}
+
+
+/* ── QA Studio agent desk animations ─────────────────────────── */
+.qa-desk-card { margin-bottom: 4px; }
+
+.qa-desk-card.status-thinking {
+  border-color: #fbbf24 !important;
+  box-shadow: 0 0 18px rgba(251,191,36,0.18);
+  animation: g3AgentBounce 1.5s ease-in-out infinite;
+}
+.qa-desk-card.status-working {
+  border-color: var(--agent-color) !important;
+  box-shadow: 0 0 22px color-mix(in srgb, var(--agent-color) 28%, transparent);
+  animation: g3AgentShake 0.32s ease-in-out infinite;
+}
+.qa-desk-bug-count {
+  font-size: 0.6rem;
+  font-family: var(--font-mono);
+  color: #ff8800;
+  margin-top: 2px;
+  letter-spacing: 0.06em;
+}
+.qa-bug-header {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 2px;
+}
+@keyframes qaBugSlideIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+/* Mini-map halo pulse (reuse g3 keyframe) */
+@keyframes g3MmHaloPulse {
+  0%,100% { opacity:0.15; r:10; }
+  50%      { opacity:0.45; r:14; }
+}
+.g3-mm-node.mm-flash .g3-mm-circle {
+  stroke-width: 3;
+  filter: drop-shadow(0 0 6px var(--agent-color));
+}
+
+/* ── QA Bug Card — expandable with repro + screenshot ─────────── */
+
+.qa-bug-details { width: 100%; }
+
+.qa-bug-summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+}
+.qa-bug-summary::-webkit-details-marker { display: none; }
+
+/* Chevron indicator */
+.qa-bug-summary::before {
+  content: '▶';
+  font-size: 0.5rem;
+  color: #445;
+  margin-right: 4px;
+  display: inline-block;
+  transition: transform 0.15s ease;
+  vertical-align: middle;
+}
+.qa-bug-details[open] .qa-bug-summary::before {
+  transform: rotate(90deg);
+  color: #778;
+}
+
+.qa-bug-summary:hover .qa-bug-title { color: #eef; }
+
+.qa-has-shot {
+  font-size: 0.65rem;
+  margin-left: auto;
+  opacity: 0.7;
+}
+
+/* Expanded content */
+.qa-bug-expanded {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 8px;
+  border-left: 1px solid #1e2235;
+}
+
+.qa-bug-desc {
+  color: #889;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Reproduction steps */
+.qa-repro-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.qa-repro-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  color: #fbbf24;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+
+.qa-repro-steps {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: #aab;
+  background: #080a12;
+  border: 1px solid #1a1e2e;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+}
+
+/* Screenshot */
+.qa-bug-screenshot-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.qa-bug-screenshot-img {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  object-position: top;
+  border-radius: 4px;
+  border: 1px solid #1e2235;
+  cursor: zoom-in;
+  transition: max-height 0.25s ease, border-color 0.15s;
+}
+
+.qa-bug-screenshot-img:hover {
+  border-color: #334;
+}
+
+.qa-bug-screenshot-img.qa-img-zoom {
+  max-height: 400px;
+  object-fit: contain;
+  object-position: center;
+  cursor: zoom-out;
+  background: #050710;
+}
+
+.qa-dl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  color: #22d3ee;
+  background: rgba(34, 211, 238, 0.08);
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  border-radius: 3px;
+  padding: 4px 10px;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+  cursor: pointer;
+}
+
+.qa-dl-btn:hover {
+  background: rgba(34, 211, 238, 0.18);
+  border-color: rgba(34, 211, 238, 0.5);
+  color: #67e8f9;
 }

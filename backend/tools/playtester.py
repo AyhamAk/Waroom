@@ -64,10 +64,10 @@ def _vite_preview(workspace_dir: str, port: int):
             [sys.executable, "-m", "http.server", str(port),
              "--directory", str(public_dir)],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
-        # Wait until the port is accepting connections (max 6s — should be <1s).
-        deadline = time.time() + 6
+        # Wait until the port is accepting connections (max 15s for slow Windows subprocess start).
+        deadline = time.time() + 15
         ready = False
         while time.time() < deadline:
             try:
@@ -77,6 +77,12 @@ def _vite_preview(workspace_dir: str, port: int):
             except OSError:
                 time.sleep(0.15)
         if not ready:
+            ret = proc.poll()
+            if ret is not None and proc.stderr:
+                err_snippet = proc.stderr.read(400).decode(errors="replace").strip()
+                print(f"[playtester] http.server exited({ret}): {err_snippet}", file=sys.stderr, flush=True)
+            elif proc.poll() is None:
+                print(f"[playtester] http.server still running after 15s but port {port} not responding", file=sys.stderr, flush=True)
             yield None
             return
         yield f"http://127.0.0.1:{port}"

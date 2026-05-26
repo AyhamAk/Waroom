@@ -41,6 +41,7 @@ from agents.game_director import game_director_node
 from agents.gameplay_programmer import gameplay_programmer_node
 from agents.level_designer import level_designer_node
 from agents.tech_art import tech_art_node
+from agents.texture_artist import texture_artist_node
 from agents.vision_playtester import vision_playtester_node
 from graph.game_state import GameState
 from templates.game_base import scaffold_game_workspace
@@ -49,17 +50,19 @@ from templates.game_base import scaffold_game_workspace
 MAX_PLAYTEST_PASSES = 3
 REGRESSION_DELTA = 0.5
 MAX_REBUILDS_PER_CYCLE = 1
+MAX_REBUILD_CYCLES = 3
 
 
 def _route_after_director(state: GameState) -> str:
     """
     After Director:
       - Cycle 1: go to level_designer.
-      - Later cycles (review pass): APPROVED → END, otherwise rebuild back
-        to gameplay_programmer with the director's notes in feedback.
+      - Later cycles (review pass): APPROVED → END, rebuild otherwise.
+      - Hard cap at MAX_REBUILD_CYCLES to prevent infinite looping when
+        the preview server never starts or the game never renders.
     """
     cycle = state.get("cycle", 0)
-    if state.get("is_done"):
+    if state.get("is_done") or cycle > MAX_REBUILD_CYCLES:
         return "done"
     if cycle <= 1:
         return "design"
@@ -126,6 +129,7 @@ def build_game_graph(checkpointer=None):
     g.add_node("asset_lead",          asset_lead_node)
     g.add_node("engine_engineer",     engine_engineer_node)
     g.add_node("tech_art",            tech_art_node)
+    g.add_node("texture_artist",      texture_artist_node)
     g.add_node("gameplay_programmer", gameplay_programmer_node)
     g.add_node("playtester",          vision_playtester_node)
     g.add_node("rebuild",             _rebuild_node)
@@ -143,7 +147,8 @@ def build_game_graph(checkpointer=None):
     g.add_edge("level_designer",      "asset_lead")
     g.add_edge("asset_lead",          "engine_engineer")
     g.add_edge("engine_engineer",     "tech_art")
-    g.add_edge("tech_art",            "gameplay_programmer")
+    g.add_edge("tech_art",            "texture_artist")
+    g.add_edge("texture_artist",      "gameplay_programmer")
     g.add_edge("gameplay_programmer", "playtester")
 
     # Playtest loop.

@@ -82,6 +82,10 @@ function buildCategoryRow() {
             open3DStudioPicker();
             return;
           }
+          if (cat.id === 'qa-studio' && typeof switchStudioMode === 'function') {
+            switchStudioMode('qa');
+            return;
+          }
         }
         selectCategory(cat.id);
       });

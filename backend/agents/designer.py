@@ -37,6 +37,20 @@ interactions:
   .class-name:hover — exact transform/color/shadow delta
 
 RULE: write_file path MUST be "docs/design-spec.md". Then STOP.
+
+━━━ SCROLL SITE CHOREOGRAPHY ━━━
+When building a scroll-driven website, add a scroll: section to the spec:
+
+scroll:
+  #hero — camera z 6→4 scrub, headline slides up 60px + fades in, 3D object rotates on Y-axis
+  #about — text block staggers in (0.08s delay per word), camera drifts up 0.5 units
+  #features — PINNED 120vh, scroll progress (0→1) drives: 3D object full Y-rotation, progress bar fills
+  #cta — background gradient shifts hue, button scales up from 0.8, final camera pullback z 4→7
+
+cinematic:
+  hero-object — IcosahedronGeometry r=1.5, MeshStandardMaterial emissive:#6366f1 strength:0.8, slow Y-rotation 0.003rad/frame
+  particle-field — 2000 Float32 points, custom ShaderMaterial, drift upward in render loop
+  bloom — UnrealBloomPass strength:0.8 threshold:0.6 radius:0.4 on dark backgrounds
 """
 
 

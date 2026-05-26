@@ -163,10 +163,10 @@ const PRESETS = {
     fxaa: true,
   },
   stylized_topdown_punch: {
-    bloom: 1.1, threshold: 0.7, bloom_radius: 0.6,
+    bloom: 0.55, threshold: 0.85, bloom_radius: 0.4,
     vignette: 0.25, softness: 0.55,
     ca: 0.001, grain: 0.04, scanline: 0.0,
-    ssao: { enabled: true, kernel: 12, radius: 0.4, minDist: 0.005, maxDist: 0.04 },
+    ssao: { enabled: false },
     dof:  { enabled: false },
     fxaa: true,
   },
@@ -276,8 +276,9 @@ export class PostFX {
     this.filmGrain.uniforms.nIntensity.value = p.grain ?? 0.10;
     this.filmGrain.uniforms.sIntensity.value = p.scanline ?? 0.0;
 
-    if (p.ssao && p.ssao.enabled) {
-      this.ssao.enabled = true;
+    // SSAO disabled globally — causes WebGL context loss in iframe/virtual contexts.
+    this.ssao.enabled = false;
+    if (false && p.ssao && p.ssao.enabled) {
       this.ssao.kernelRadius = p.ssao.radius ?? 0.6;
       this.ssao.minDistance = p.ssao.minDist ?? 0.005;
       this.ssao.maxDistance = p.ssao.maxDist ?? 0.06;

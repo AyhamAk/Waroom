@@ -36,6 +36,7 @@ class GameState(TypedDict):
 
     # Tech-art output
     materials_config: str       # docs/materials.json — material/lighting/post-fx presets
+    textures_config: str           # docs/textures.json — surface → texture file mapping
 
     # Gameplay programmer output (just records files written)
     gameplay_files: list
@@ -85,6 +86,7 @@ def make_game_state(
         asset_manifest="",
         engine_config="",
         materials_config="",
+        textures_config="",
         gameplay_files=[],
         playtest_pass=0,
         playtest_verdict="",

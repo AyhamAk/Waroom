@@ -47,11 +47,11 @@ export const LIGHTING_PRESETS = {
     fog: { type: 'exp2', color: 0x1a1d22, density: 0.045 },
   },
   stylized_topdown_punch: {
-    hdri: 'studio_small_03', use_sky: false,
-    sun_direction: [0.5, 1.0, 0.3], sun_intensity: 4.5, sun_color: 0xffffff,
-    fill_intensity: 0.45, fill_sky: 0xffd2ff, fill_ground: 0x303060,
-    exposure: 1.2, background_blur: 0.0,
-    fog: { type: 'linear', color: 0x0a0a18, near: 30, far: 80 },
+    hdri: null, use_sky: false,
+    sun_direction: [0.5, 1.0, 0.3], sun_intensity: 1.8, sun_color: 0x8080cc,
+    fill_intensity: 0.12, fill_sky: 0x202060, fill_ground: 0x050510,
+    exposure: 0.9, background_blur: 0.0,
+    fog: { type: 'none' },
   },
   neon_night: {
     hdri: 'moonless_golf', use_sky: false,
@@ -99,7 +99,10 @@ export class Lighting {
     // HDRI.
     if (cfg.hdri && HDRI_CATALOG[cfg.hdri]) {
       try {
-        const hdr = await this._rgbe.loadAsync(HDRI_CATALOG[cfg.hdri]);
+        const hdr = await Promise.race([
+          this._rgbe.loadAsync(HDRI_CATALOG[cfg.hdri]),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('HDRI timeout')), 4000)),
+        ]);
         const env = this._pmrem.fromEquirectangular(hdr).texture;
         this.scene.environment = env;
         this.envTexture = env;

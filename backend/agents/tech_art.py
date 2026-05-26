@@ -75,13 +75,38 @@ Retro / arcade          → post_fx=retro_film (heavy grain + scanlines).
 4. Set use_csm based on level size (true if XZ > 30m).
 5. Write docs/materials.json. Stop.
 
+═════════ EMISSIVE & BLOOM MANDATE ═════════
+
+Every game must feel ALIVE. Flat materials kill visual quality. Rules:
+
+EMISSIVE
+- Player entity: emissive matches base_color, emissive_strength 0.6–0.9
+- Enemies: emissive matches their threat color (red, amber, magenta),
+  emissive_strength 0.8–1.2. Must glow visibly in the dark.
+- Core/reactor/objective: emissive_strength 1.5–2.5. This is the visual hero.
+- Pickups: emissive_strength 1.0–1.5, bright saturated color.
+- Decorative/structural: emissive_strength 0.3–0.6.
+- Static props (crates, barrels): emissive 0 is OK only if the scene has
+  enough other emissive objects to carry the visual weight.
+
+BLOOM
+- Cyberpunk / neon / arena genres: ALWAYS set bloom_strength_override 0.7–1.0,
+  threshold 0.75–0.82. Do NOT leave null — presets are conservative.
+- Sci-fi / space: bloom_strength_override 0.6–0.8, threshold 0.80.
+- Outdoor / realistic: leave bloom null (preset handles it).
+
+VIGNETTE
+- For any dark-background genre (space, neon, arena): vignette 0.35–0.50.
+  Frames the action and hides screen edges.
+
 ═════════ HARD RULES ═════════
 
 - Valid JSON. No comments, no trailing commas.
 - Preset names MUST come from the enums above — never invent new ones.
 - Cohesive palette: max 6 distinct hues across all materials.
 - Hazards always emissive red/orange/yellow so they read at distance.
-- Keep _override fields null unless you have a strong reason — presets are tuned.
+- Leaving ALL _override fields null is FORBIDDEN for dark-background genres.
+  You MUST set bloom_strength_override and vignette_amount_override at minimum.
 - One write_file call. Then stop."""
 
 
@@ -145,10 +170,10 @@ material. Keep the palette tight."""
         emit=emit,
         agent_id="tech-art",
         api_key=state["api_key"],
-        # Tech-Art picks palette + post-FX preset + writes per-asset
-        # material params — selection task, low reasoning depth. Haiku 4.5.
-        model="claude-haiku-4-5",
-        max_tokens=3500,
+        # Tech-Art drives visual quality — bloom, emissive, lighting mood.
+        # Needs creative depth and colour intuition. Sonnet.
+        model="claude-sonnet-4-6",
+        max_tokens=4000,
         max_iterations=3,
         session=session,
         stop_after_write=["docs/materials.json"],

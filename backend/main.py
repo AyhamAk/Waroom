@@ -18,7 +18,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -847,7 +847,10 @@ async def _run_game_graph(initial_state: dict, config: dict, workspace_dir: str,
                     if state_update.get("latest_screenshot"):
                         _game_session["latest_screenshot"] = state_update["latest_screenshot"]
                     if state_update.get("preview_url"):
+                        first_preview = not _game_session.get("preview_url")
                         _game_session["preview_url"] = state_update["preview_url"]
+                        if first_preview:
+                            await _emit("game-preview-ready", {"previewUrl": state_update["preview_url"]})
                 # Persist after every node so a crash mid-graph doesn't lose
                 # the file tree / token totals the UI displays on resume.
                 save_session(workspace_dir, _game_session)
@@ -1196,10 +1199,155 @@ _MIME = {
 }
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# QA SWARM PIPELINE
+# ══════════════════════════════════════════════════════════════════════════════
+
+_qa_session: dict = {
+    "running": False,
+    "session_id": None,
+    "workspace_dir": None,
+    "target_url": None,
+    "bugs": [],
+    "tokens": 0,
+    "is_done": False,
+    "task": None,
+}
+
+
+class QAStartRequest(BaseModel):
+    url: str
+    apiKey: str
+
+
+@app.post("/api/qa/start")
+async def qa_start(body: QAStartRequest):
+    from graph.qa_graph import build_qa_graph
+    from graph.qa_state import make_qa_state
+
+    if _qa_session.get("task") and not _qa_session["task"].done():
+        _qa_session["task"].cancel()
+        await asyncio.sleep(0.2)
+
+    session_id = f"qa_{int(time.time() * 1000)}"
+    ws_dir = str(WORKSPACE_DIR / session_id)
+    Path(ws_dir, "screenshots").mkdir(parents=True, exist_ok=True)
+
+    _qa_session.update(
+        running=True,
+        session_id=session_id,
+        workspace_dir=ws_dir,
+        target_url=body.url,
+        bugs=[],
+        tokens=0,
+        is_done=False,
+        task=None,
+        api_key=body.apiKey,
+    )
+
+    initial_state = make_qa_state(
+        session_id=session_id,
+        workspace_dir=ws_dir,
+        api_key=body.apiKey,
+        target_url=body.url,
+    )
+
+    config = {
+        "recursion_limit": 60,
+        "configurable": {
+            "thread_id": session_id,
+            "emit": _emit,
+            "qa_session": _qa_session,
+        },
+    }
+
+    task = asyncio.create_task(_run_qa_pipeline(initial_state, config))
+    _qa_session["task"] = task
+    return {"ok": True, "sessionId": session_id}
+
+
+async def _run_qa_pipeline(initial_state: dict, config: dict):
+    from graph.qa_graph import build_qa_graph
+
+    try:
+        await _emit("qa-start", {
+            "sessionId": _qa_session["session_id"],
+            "targetUrl": _qa_session["target_url"],
+        })
+        graph = build_qa_graph()
+        async for event in graph.astream(initial_state, config=config):
+            pass
+        total_bugs = len(_qa_session.get("bugs", []))
+        await _emit("qa-done", {
+            "sessionId": _qa_session["session_id"],
+            "totalBugs": total_bugs,
+        })
+        _qa_session["running"] = False
+        _qa_session["is_done"] = True
+    except asyncio.CancelledError:
+        _qa_session["running"] = False
+        await _emit("qa-stopped", {})
+    except Exception as exc:
+        _qa_session["running"] = False
+        await _emit("qa-error", {"message": str(exc)})
+
+
+@app.post("/api/qa/stop")
+async def qa_stop():
+    task = _qa_session.get("task")
+    if task and not task.done():
+        task.cancel()
+        await asyncio.sleep(0.1)
+    _qa_session["running"] = False
+    await _emit("qa-stopped", {})
+    return {"ok": True}
+
+
+@app.get("/api/qa/status")
+async def qa_status():
+    return {
+        "running": _qa_session.get("running", False),
+        "sessionId": _qa_session.get("session_id"),
+        "targetUrl": _qa_session.get("target_url"),
+        "totalBugs": len(_qa_session.get("bugs", [])),
+        "isDone": _qa_session.get("is_done", False),
+    }
+
+
+@app.get("/api/qa/screenshot/{session_id}/{filename}")
+async def qa_screenshot(session_id: str, filename: str):
+    if not re.match(r'^[a-zA-Z0-9_-]+$', session_id):
+        raise HTTPException(404)
+    if not re.match(r'^[a-zA-Z0-9_.\-]+$', filename):
+        raise HTTPException(404)
+    path = WORKSPACE_DIR / session_id / "screenshots" / filename
+    if not path.exists() or not path.is_file():
+        raise HTTPException(404)
+    return Response(content=path.read_bytes(), media_type="image/png")
+
+
+@app.get("/workspace/{session_id}/{path:path}")
+async def serve_workspace_file(session_id: str, path: str):
+    """Serve built game files directly — powers the live preview iframe."""
+    if not re.match(r'^[a-zA-Z0-9_-]+$', session_id):
+        raise HTTPException(404)
+    file_path = WORKSPACE_DIR / session_id / path
+    try:
+        file_path.resolve().relative_to(WORKSPACE_DIR.resolve())
+    except ValueError:
+        raise HTTPException(404)
+    if file_path.is_dir():
+        file_path = file_path / "index.html"
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404)
+    mime = _MIME.get(file_path.suffix.lower(), "application/octet-stream")
+    return Response(content=file_path.read_bytes(), media_type=mime)
+
+
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):
     # Don't catch API or preview routes
-    if full_path.startswith(("api/", "preview", "backend/")):
+    if full_path.startswith(("api/", "preview", "backend/", "workspace/")):
         raise HTTPException(404)
 
     candidate = PUBLIC_DIR / full_path if full_path else PUBLIC_DIR / "index.html"
@@ -1231,6 +1379,52 @@ async def serve_frontend(full_path: str):
     if not index.exists():
         raise HTTPException(404, "Frontend not found")
     return Response(content=index.read_bytes(), media_type="text/html")
+
+
+# ── Session auto-restore ──────────────────────────────────────────────────────
+
+def _auto_restore_game_session():
+    """
+    On startup, find the most recently modified game workspace that has a
+    built public/index.html and restore it into _game_session so /preview-game
+    works immediately without the user having to start a new session.
+    """
+    if not WORKSPACE_DIR.exists():
+        return
+    candidates = []
+    for d in WORKSPACE_DIR.iterdir():
+        if not d.is_dir() or not d.name.startswith("game_"):
+            continue
+        index = d / "public" / "index.html"
+        if index.exists():
+            candidates.append((index.stat().st_mtime, d))
+    if not candidates:
+        return
+    candidates.sort(reverse=True)
+    _, ws = candidates[0]
+    session_id = ws.name
+    _game_session["session_id"]   = session_id
+    _game_session["workspace_dir"] = str(ws)
+    _game_session["running"]      = False
+    print(f"  [game] Auto-restored session: {session_id}")
+
+
+_auto_restore_game_session()
+
+
+# ── Load session endpoint ──────────────────────────────────────────────────────
+
+@app.post("/api/game/load/{session_id}")
+async def game_load_session(session_id: str):
+    """Point the preview at an existing workspace without re-running the pipeline."""
+    ws = WORKSPACE_DIR / session_id
+    if not ws.exists() or not (ws / "public" / "index.html").exists():
+        raise HTTPException(404, f"Session {session_id} not found or not built")
+    _game_session["session_id"]   = session_id
+    _game_session["workspace_dir"] = str(ws)
+    _game_session["running"]      = False
+    await _emit("game-session-loaded", {"sessionId": session_id})
+    return {"ok": True, "sessionId": session_id}
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

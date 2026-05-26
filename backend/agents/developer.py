@@ -123,6 +123,183 @@ For games: NEVER use DOM elements for game objects — use Canvas2D or Three.js/
 - Self-check: particles ✓, glow ✓, animations ✓, sounds ✓, game-over screen ✓
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3D SCROLL WEBSITE MODE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+When the tech spec includes gsap AND ScrollTrigger AND lenis — you are building a
+scroll-driven 3D website. NOT a game. Completely different rules:
+
+MANDATORY FILE STRUCTURE (no Vite, no build step, pure vanilla in public/):
+  public/index.html        — importmap + semantic HTML sections
+  public/css/style.css     — all styles including section layouts
+  public/js/main.js        — Lenis + GSAP bootstrap + Three.js renderer init
+  public/js/scene.js       — Three.js scene, camera, lights, 3D objects
+  public/js/animations.js  — all GSAP ScrollTrigger timelines
+
+HTML SKELETON — always use this structure:
+  <!DOCTYPE html><html lang="en"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><!-- from brief --></title>
+    <link rel="stylesheet" href="css/style.css">
+    <script type="importmap">{"imports":{
+      "three":"https://esm.sh/three@0.165.0",
+      "three/addons/":"https://esm.sh/three@0.165.0/examples/jsm/",
+      "gsap":"https://esm.sh/gsap@3.12.5",
+      "gsap/ScrollTrigger":"https://esm.sh/gsap@3.12.5/ScrollTrigger.js",
+      "lenis":"https://esm.sh/lenis@1.1.13"
+    }}</script>
+  </head><body>
+    <canvas id="webgl"></canvas>
+    <main id="content">
+      <section id="hero" class="section"><!-- hero content --></section>
+      <section id="about" class="section"><!-- about content --></section>
+      <section id="features" class="section"><!-- features --></section>
+      <section id="cta" class="section"><!-- CTA --></section>
+    </main>
+    <script type="module" src="js/main.js"></script>
+  </body></html>
+
+CSS BASELINE — always include in style.css:
+  *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+  html{overflow-x:hidden;scroll-behavior:auto} /* Lenis handles smooth scroll */
+  body{background:#080810;color:#fff;font-family:system-ui,sans-serif}
+  #webgl{position:fixed;top:0;left:0;width:100%;height:100vh;z-index:0;pointer-events:none}
+  #content{position:relative;z-index:1}
+  .section{min-height:100vh;display:flex;flex-direction:column;
+           justify-content:center;padding:0 8vw;position:relative}
+  h1{font-size:clamp(3rem,8vw,7rem);line-height:1.05;letter-spacing:-0.02em;font-weight:800}
+  h2{font-size:clamp(2rem,5vw,4.5rem);line-height:1.1;letter-spacing:-0.01em;font-weight:700}
+  p{font-size:clamp(1rem,1.5vw,1.2rem);line-height:1.7;color:rgba(255,255,255,0.65);max-width:55ch}
+  .reveal{opacity:0}  /* GSAP animates these in */
+
+MAIN.JS — always exactly this bootstrap pattern:
+  import * as THREE from 'three'
+  import gsap from 'gsap'
+  import ScrollTrigger from 'gsap/ScrollTrigger'
+  import Lenis from 'lenis'
+  import { initScene, updateScene } from './scene.js'
+  import { initAnimations } from './animations.js'
+
+  gsap.registerPlugin(ScrollTrigger)
+
+  const lenis = new Lenis({ lerp: 0.08, duration: 1.2 })
+  lenis.on('scroll', ScrollTrigger.update)
+  gsap.ticker.add((time) => lenis.raf(time * 1000))
+  gsap.ticker.lagSmoothing(0)
+
+  const ctx = initScene()
+  initAnimations(ctx.camera, ctx.scene)
+
+  ;(function tick() {
+    requestAnimationFrame(tick)
+    updateScene(ctx)
+  })()
+
+SCENE.JS — Three.js setup + objects:
+  import * as THREE from 'three'
+  export function initScene() {
+    const renderer = new THREE.WebGLRenderer({
+      canvas: document.getElementById('webgl'), antialias:true, alpha:true
+    })
+    renderer.setSize(window.innerWidth, window.innerHeight)
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+
+    const scene = new THREE.Scene()
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 100)
+    camera.position.set(0, 0, 6)
+
+    // Resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth/window.innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(window.innerWidth, window.innerHeight)
+    })
+
+    // 3D objects — BUILD IMPRESSIVE ONES per the design spec
+    // Examples: particles, glowing geometries, wireframes, custom shaders
+    // Always add ambient + directional light
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4))
+    const dir = new THREE.DirectionalLight(0xffffff, 2); dir.position.set(5,5,5)
+    scene.add(dir)
+
+    return { scene, camera, renderer }
+  }
+  export function updateScene({ scene, camera, renderer }) {
+    renderer.render(scene, camera)
+  }
+
+ANIMATIONS.JS — all ScrollTrigger timelines:
+  import ScrollTrigger from 'gsap/ScrollTrigger'
+  import gsap from 'gsap'
+
+  export function initAnimations(camera, scene) {
+    // 1. Reveal all .reveal elements on scroll
+    gsap.utils.toArray('.reveal').forEach(el => {
+      gsap.to(el, {
+        opacity:1, y:0, duration:1, ease:'power3.out',
+        scrollTrigger:{ trigger:el, start:'top 82%', toggleActions:'play none none reverse' }
+      })
+    })
+
+    // 2. Camera flythrough — ties 3D camera position to scroll progress
+    gsap.to(camera.position, {
+      z:3, y:0.8,
+      ease:'none',
+      scrollTrigger:{ trigger:'#about', start:'top bottom', end:'bottom top', scrub:1.5 }
+    })
+
+    // 3. Pinned section with scroll-driven progress
+    const pin = document.getElementById('features')
+    if (pin) {
+      ScrollTrigger.create({
+        trigger: pin, start:'top top', end:'+=120%', pin:true, pinSpacing:true,
+        onUpdate: self => {
+          // Drive 3D animations by self.progress (0→1)
+          const obj = scene.getObjectByName('feature-mesh')
+          if (obj) obj.rotation.y = self.progress * Math.PI * 2
+        }
+      })
+    }
+  }
+
+3D OBJECTS — must be visually stunning. Always choose from:
+- Particle cloud: Float32BufferAttribute positions, THREE.Points, custom ShaderMaterial with size attenuation
+- Icosahedron/TorusKnot with MeshStandardMaterial, emissive glow, rotate in render loop
+- Wireframe sphere that morphs: SphereGeometry + WireframeGeometry, animate vertex positions
+- Background gradient via PlaneGeometry + ShaderMaterial with uTime uniform
+- Bloom: import EffectComposer, RenderPass, UnrealBloomPass from three/addons/
+
+SCROLL-REACTIVE 3D (examples to follow):
+  // Object follows scroll position
+  ScrollTrigger.create({
+    trigger:'#hero', start:'top top', end:'bottom top', scrub:true,
+    onUpdate: self => {
+      const mesh = scene.getObjectByName('hero-obj')
+      if(mesh){
+        mesh.rotation.y = self.progress * Math.PI
+        mesh.position.y = self.progress * -1.5
+      }
+    }
+  })
+
+TYPOGRAPHY RULES for scroll sites:
+- All headings get class="reveal" for GSAP entrance animations
+- Use CSS gradient text for hero: background:linear-gradient(135deg,#a855f7,#3b82f6);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent
+- Stagger paragraph words using span.word wrappers animated with gsap.from(words,{stagger:0.03})
+- Navigation: fixed top, backdrop-filter:blur(20px), transparent background
+
+QUALITY BAR (would an Awwwards jury shortlist this?):
+- Minimum 3 scroll-triggered animation sequences
+- At least 1 pinned section with scroll progress driving 3D
+- Three.js background reacts to scroll (camera moves + objects animate)
+- Hero section must have a large 3D object prominently featured
+- Smooth scroll via Lenis feels buttery — never jerky
+- Color palette: dark background (#080810 or similar) + 2 vivid accent colors
+- Glassmorphism cards: backdrop-filter:blur(16px), border:1px solid rgba(255,255,255,0.1)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 NON-NEGOTIABLE EXIT CONDITION
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 You MUST NOT stop until public/index.html exists in the workspace root public/ directory.
